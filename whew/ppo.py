@@ -1,9 +1,12 @@
 """
 PPO for WHEW!
 
-The actor is a CoILNet used with a fixed command, so PPO can start exactly from the
-imitation policy (no weight conversion) or from random weights (baseline).
-Gaussian policy: mean = network output in [-1, 1], state-independent learnable std.
+Two policy types share one PPO implementation:
+* ActorCritic: low-level continuous control. The actor is a CoILNet used with a fixed
+  command, so PPO can start exactly from the imitation policy or from random weights.
+  Gaussian policy: mean = network output in [-1, 1], state-independent learnable std.
+* SwitchActorCritic: high-level mode switcher (as in H-ReIL). A categorical policy picks
+  which frozen CoIL branch (aggressive / timid) drives next.
 Advantages: GAE(lambda). Value function: separate MLP.
 """
 import numpy as np
@@ -31,6 +34,51 @@ class ActorCritic(nn.Module):
 
     def value(self, obs):
         return self.critic(obs).squeeze(-1)
+
+    def sample(self, obs):
+        d = self.dist(obs)
+        a = d.sample()
+        return float(a[0, 0]), float(d.log_prob(a).sum())
+
+    def evaluate(self, obs, act):
+        d = self.dist(obs)
+        return d.log_prob(act).sum(-1), d.entropy().sum(-1)
+
+    def actor_parameters(self):
+        return list(self.actor.parameters()) + [self.log_std]
+
+
+class SwitchActorCritic(nn.Module):
+    """High-level policy: chooses a driving mode (CoIL command) from the observation."""
+
+    def __init__(self, obs_dim=7, n_modes=2, hidden=64):
+        super().__init__()
+        self.policy = nn.Sequential(nn.Linear(obs_dim, hidden), nn.Tanh(),
+                                    nn.Linear(hidden, hidden), nn.Tanh(), nn.Linear(hidden, n_modes))
+        self.critic = nn.Sequential(nn.Linear(obs_dim, hidden), nn.Tanh(),
+                                    nn.Linear(hidden, hidden), nn.Tanh(), nn.Linear(hidden, 1))
+
+    def dist(self, obs):
+        return torch.distributions.Categorical(logits=self.policy(obs))
+
+    def value(self, obs):
+        return self.critic(obs).squeeze(-1)
+
+    def sample(self, obs):
+        d = self.dist(obs)
+        a = d.sample()
+        return float(a[0]), float(d.log_prob(a)[0])
+
+    def evaluate(self, obs, act):
+        d = self.dist(obs)
+        return d.log_prob(act.reshape(-1).long()), d.entropy()
+
+    @torch.no_grad()
+    def greedy(self, obs):
+        return int(self.policy(obs).argmax(-1)[0])
+
+    def actor_parameters(self):
+        return list(self.policy.parameters())
 
 
 class RolloutBuffer:
@@ -66,7 +114,7 @@ class PPO:
     def __init__(self, model, lr_actor=1e-4, lr_critic=1e-3, gamma=0.99, lam=0.95, clip=0.2,
                  epochs=10, minibatch=256, entropy_coef=0.0):
         self.model = model
-        self.opt_actor = torch.optim.Adam(list(model.actor.parameters()) + [model.log_std], lr=lr_actor)
+        self.opt_actor = torch.optim.Adam(model.actor_parameters(), lr=lr_actor)
         self.opt_critic = torch.optim.Adam(model.critic.parameters(), lr=lr_critic)
         self.gamma, self.lam, self.clip = gamma, lam, clip
         self.epochs, self.minibatch, self.entropy_coef = epochs, minibatch, entropy_coef
@@ -74,9 +122,8 @@ class PPO:
     @torch.no_grad()
     def act(self, obs_norm):
         x = torch.as_tensor(obs_norm, dtype=torch.float32).reshape(1, -1)
-        d = self.model.dist(x)
-        a = d.sample()
-        return float(a[0, 0]), float(d.log_prob(a).sum()), float(self.model.value(x)[0])
+        a, logp = self.model.sample(x)
+        return a, logp, float(self.model.value(x)[0])
 
     @torch.no_grad()
     def value(self, obs_norm):
@@ -95,15 +142,14 @@ class PPO:
                 self.opt_critic.step()
                 stats["value_loss"] += v_loss.item()
                 if train_actor:
-                    d = self.model.dist(obs[idx])
-                    logp = d.log_prob(act[idx]).sum(-1)
+                    logp, entropy = self.model.evaluate(obs[idx], act[idx])
                     ratio = (logp - logp_old[idx]).exp()
                     p_loss = -torch.min(ratio * adv[idx],
                                         ratio.clamp(1 - self.clip, 1 + self.clip) * adv[idx]).mean()
-                    p_loss = p_loss - self.entropy_coef * d.entropy().mean()
+                    p_loss = p_loss - self.entropy_coef * entropy.mean()
                     self.opt_actor.zero_grad()
                     p_loss.backward()
-                    nn.utils.clip_grad_norm_(self.model.actor.parameters(), 0.5)
+                    nn.utils.clip_grad_norm_(self.model.actor_parameters(), 0.5)
                     self.opt_actor.step()
                     stats["policy_loss"] += p_loss.item()
                     stats["approx_kl"] += (logp_old[idx] - logp).mean().item()

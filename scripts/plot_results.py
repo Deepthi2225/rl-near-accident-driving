@@ -22,7 +22,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 METHODS = {"ppo_from_coil": ("PPO from CoIL (timid)", "#e8452c"),
-           "ppo_scratch": ("PPO from scratch", "#3a6ea5")}
+           "ppo_scratch": ("PPO from scratch", "#3a6ea5"),
+           "ppo_switcher": ("PPO mode switcher (H-ReIL)", "#2a9d63")}
 REFS = {"expert:aggressive": ("Aggressive expert", "--"), "expert:timid": ("Timid expert", ":")}
 METRICS = [("success", "Success rate", True), ("collision", "Collision rate", True),
            ("timeout", "Timeout rate", True), ("mean_time_to_goal", "Time to goal (s)", False),

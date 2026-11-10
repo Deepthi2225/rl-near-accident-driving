@@ -15,16 +15,19 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: v0.3. Scenario 1 works end to end: expert data, conditional imitation learning,
-> PPO fine-tuning and a PPO-from-scratch baseline, evaluated over 3 seeds. More scenarios are next.
+> Status: v0.4. Scenario 1 works end to end: expert data, conditional imitation learning,
+> PPO fine-tuning, a high-level mode switcher (H-ReIL style) and a PPO-from-scratch baseline,
+> evaluated over 3 seeds. More scenarios are next.
 
 ## Approach
 
 1. **Near-accident scenarios** built on the CARLA simulator.
 2. **Expert demonstrations** from two rule-based drivers: *aggressive* and *timid*.
 3. **Conditional imitation learning (CoIL)**: one network with a branch per driving style.
-4. **PPO fine-tuning**, starting from the imitation policy, to learn when to be bold and
-   when to be careful, and to beat both experts.
+4. **Reinforcement learning on top of imitation**, two ways:
+   * *fine-tuning*: PPO adjusts the timid CoIL branch's throttle / brake directly;
+   * *mode switching* (as in H-ReIL): PPO chooses every 0.25 s whether the aggressive or
+     the timid CoIL branch drives.
 
 ## Scenarios
 
@@ -52,8 +55,8 @@ pedestrian. The pedestrian can only be observed once they leave the blind spot.
 ## Results (scenario 1: pedestrian dart-out)
 
 100 unseen scenarios per policy (the same scenario seeds for every policy, disjoint from the
-training data). PPO: 3 training seeds per method, 200k steps each, mean ± std over seeds;
-policies use their mean action.
+training data). RL methods: 3 training seeds each (200k steps for fine-tuning and from
+scratch, 300k for the switcher), mean ± std over seeds; policies act deterministically.
 
 | Policy | Success | Collision | Time to goal | Closest to pedestrian | Top speed | Return |
 |---|---|---|---|---|---|---|
@@ -62,9 +65,10 @@ policies use their mean action.
 | CoIL, aggressive branch | 66% | 34% | 7.3 s | 2.9 m | 44 km/h | 2.0 |
 | CoIL, timid branch | 98% | 1% | 14.0 s | 7.4 m | 35 km/h | 36.5 |
 | **PPO from CoIL (timid)** | **97% ± 1%** | 3% ± 1% | **10.8 ± 0.1 s** | 5.1 ± 0.1 m | 45 ± 2 km/h | **46.6 ± 2.1** |
+| PPO mode switcher (H-ReIL) | 90% ± 7% | 10% ± 6% | 11.1 ± 0.6 s | 5.3 ± 0.3 m | 43 ± 1 km/h | 33.0 ± 11.6 |
 | PPO from scratch | 86% ± 9% | 14% ± 8% | 8.6 ± 2.7 s | 3.4 ± 0.7 m | 63 ± 16 km/h | 22.7 ± 16.1 |
 
-<p align="center"><img src="results/learning_curves.png" alt="PPO learning curves over 3 seeds" width="100%"></p>
+<p align="center"><img src="results/learning_curves.png" alt="Learning curves over 3 seeds" width="100%"></p>
 
 * **Imitation works**: each CoIL branch reproduces its expert almost exactly.
 * **PPO from CoIL** keeps the timid driver's safety (97% success) while reaching the goal
@@ -73,6 +77,13 @@ policies use their mean action.
 * **PPO from scratch** is far less reliable: results vary strongly between seeds, it crashes
   more (14%), and two of three seeds learned to speed (64-82 km/h) despite the penalty.
   Starting from imitation is safe from the first training step.
+* **The mode switcher** learns the intended idea (it drives aggressively 45-69% of the
+  time and is faster than the timid expert), but is unstable across seeds: one seed reaches
+  99% success in 10.9 s (the best single policy), the other two crash 13-15% of the time.
+  It plateaus around 90% success even with 300k training steps. A likely reason: it can only
+  pick between two fixed driving styles, and it cannot see the hidden pedestrian, so choosing
+  the aggressive branch near the parked car is a gamble. Fine-tuning can learn any
+  throttle / brake in between and is far more consistent.
 * **Scenario fix (v0.3)**: in v0.2 one from-scratch run learned to drive at ~108 km/h so the
   pedestrian stepped out after the car had passed. The time-based trigger and the speeding
   penalty remove that loophole; all numbers above are from the fixed scenario.
@@ -120,8 +131,11 @@ for s in 0 1 2; do   # 3 seeds per method
   python scripts/train_ppo.py --init scratch --seed $s --name ppo_scratch_s$s
 done
 
+# 3b. High-level mode switcher on top of the frozen CoIL branches
+for s in 0 1 2; do python scripts/train_switcher.py --steps 300000 --seed $s --name ppo_switcher_s$s; done
+
 # 4. Evaluate everything on the same unseen scenarios, then plot the learning curves
-python scripts/evaluate.py --episodes 100 --policies expert:aggressive expert:timid coil:aggressive coil:timid     ppo:checkpoints/ppo_from_coil_s{0,1,2}.pt ppo:checkpoints/ppo_scratch_s{0,1,2}.pt
+python scripts/evaluate.py --episodes 100 --policies expert:aggressive expert:timid coil:aggressive coil:timid     ppo:checkpoints/ppo_from_coil_s{0,1,2}.pt ppo:checkpoints/ppo_scratch_s{0,1,2}.pt     switcher:checkpoints/ppo_switcher_s{0,1,2}.pt
 python scripts/plot_results.py   # results/learning_curves.png and results/summary.md
 
 # Watch a policy drive (spectator camera follows the car)
@@ -137,11 +151,12 @@ whew/
   envs/pedestrian_crossing.py   # Scenario 1 as a gymnasium environment
   experts.py                    # aggressive and timid rule-based drivers
   coil.py                       # conditional imitation learning network (one branch per style)
-  ppo.py                        # PPO (GAE, Gaussian policy) with a CoIL-shaped actor
+  ppo.py                        # PPO (GAE): CoIL-shaped Gaussian actor, or categorical mode switcher
 scripts/
   collect_expert.py             # expert data collection + expert evaluation
   train_coil.py                 # imitation learning
   train_ppo.py                  # PPO fine-tuning / from-scratch baseline
+  train_switcher.py             # high-level mode switcher (H-ReIL style)
   evaluate.py                   # compare policies on the same unseen scenarios
   plot_results.py               # learning curves
 results/                        # evaluation JSON, learning-curve CSVs and plot
@@ -154,7 +169,8 @@ results/                        # evaluation JSON, learning-curve CSVs and plot
 - [x] PPO fine-tuning from the imitation policy, plus a PPO-from-scratch baseline
 - [x] Evaluation: success, collisions, time to goal, closest distance; learning curves
 - [x] Several seeds per method and more evaluation episodes
-- [ ] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
+- [x] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
+- [ ] Make the switcher more stable (e.g. memory of recent observations, more modes)
 - [ ] Scenarios 2-4, then full steering control and camera input
 
 ## Background and credits

@@ -4,7 +4,8 @@ Evaluate driving policies on the same set of unseen scenarios.
     python scripts/evaluate.py --policies expert:aggressive expert:timid coil:aggressive coil:timid
     python scripts/evaluate.py --policies coil:timid --episodes 5 --render
 
-Policy names:  expert:<aggressive|timid>,  coil:<aggressive|timid>,  ppo:<checkpoint path>
+Policy names:  expert:<aggressive|timid>,  coil:<aggressive|timid>,  ppo:<checkpoint>,
+               switcher:<checkpoint>
 Each policy sees the same scenario seeds (disjoint from the data-collection seeds),
 so the numbers are directly comparable. Results are also written to results/*.json.
 """
@@ -21,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch  # noqa: E402
 
 from whew.coil import CoILNet, CoILPolicy  # noqa: E402
+from whew.ppo import SwitchActorCritic  # noqa: E402
 from whew.envs import PedestrianCrossingEnv  # noqa: E402
 from whew.experts import COMMAND_NAMES, expert_action  # noqa: E402
 
@@ -29,8 +31,35 @@ EVAL_SEED_OFFSET = 100_000  # data collection uses seeds 0..N
 MAX_RETRIES = 5
 
 
+class SwitcherPolicy:
+    """High-level mode switcher on top of the frozen CoIL branches (greedy mode choice)."""
+
+    def __init__(self, path):
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        self.coil = CoILPolicy.load(ckpt["coil"])
+        self.net = SwitchActorCritic(obs_dim=ckpt["obs_dim"], n_modes=ckpt["n_modes"])
+        self.net.policy.load_state_dict(ckpt["policy"])
+        self.interval = ckpt["interval"]
+        self.mode, self.modes = 0, []
+
+    def __call__(self, obs, env):
+        step = int(round(env.t / env.dt))
+        if step == 0:
+            self.modes = []
+        if step % self.interval == 0:
+            x = torch.from_numpy(self.coil.normalize(obs)).reshape(1, -1)
+            self.mode = self.net.greedy(x)
+            self.modes.append(self.mode)
+        return self.coil.act(obs, self.mode)
+
+    def aggressive_share(self):
+        return float(np.mean([m == COMMANDS["aggressive"] for m in self.modes])) if self.modes else float("nan")
+
+
 def make_policy(spec, coil_path):
     kind, arg = spec.split(":", 1)
+    if kind == "switcher":
+        return SwitcherPolicy(arg)
     if kind == "ppo":  # deterministic (mean) action of a trained PPO actor
         ckpt = torch.load(arg, map_location="cpu", weights_only=False)
         net = CoILNet(obs_dim=len(ckpt["obs_mean"]), n_commands=ckpt["n_commands"])
@@ -74,7 +103,7 @@ def main():
     try:
         for spec in args.policies:
             policy = make_policy(spec, args.coil)
-            outcomes, times, dists, returns, vmax = Counter(), [], [], [], []
+            outcomes, times, dists, returns, vmax, shares = Counter(), [], [], [], [], []
             for i in range(args.episodes):
                 for attempt in range(MAX_RETRIES):
                     try:
@@ -94,6 +123,8 @@ def main():
                 dists.append(info["min_dist_to_ped"])
                 returns.append(ret)
                 vmax.append(info["max_speed"])
+                if isinstance(policy, SwitcherPolicy):
+                    shares.append(policy.aggressive_share())
                 if info["outcome"] == "success":
                     times.append(info["time"])
             n = args.episodes
@@ -108,11 +139,15 @@ def main():
                 "mean_return": float(np.mean(returns)),
                 "mean_max_speed_kmh": 3.6 * float(np.mean(vmax)),
             }
+            if shares:
+                results[spec]["aggressive_share"] = float(np.nanmean(shares))
             r = results[spec]
             print(f"{spec:18s} success {r['success']:6.1%}  collision {r['collision']:6.1%}  "
                   f"timeout {r['timeout']:5.1%}  time {r['mean_time_to_goal'] or float('nan'):5.1f}s  "
                   f"min dist {r['mean_min_dist_to_ped']:4.1f}m  return {r['mean_return']:6.1f}  "
-                  f"top speed {r['mean_max_speed_kmh']:5.1f} km/h", flush=True)
+                  f"top speed {r['mean_max_speed_kmh']:5.1f} km/h"
+                  + (f"  aggressive {r['aggressive_share']:.0%} of decisions" if 'aggressive_share' in r else ""),
+                  flush=True)
     finally:
         try:
             env.close()
