@@ -118,9 +118,11 @@ class PedestrianCrossingEnv(gym.Env):
                     a.stop()
                 except RuntimeError:
                     pass
+        # Async batch + one tick: apply_batch_sync can occasionally hang in synchronous mode.
         if self._actors:
-            self.client.apply_batch_sync(
-                [carla.command.DestroyActor(a.id) for a in reversed(self._actors)], True)
+            self.client.apply_batch([carla.command.DestroyActor(a.id) for a in reversed(self._actors)])
+            if self.world.get_settings().synchronous_mode:
+                self.world.tick()
         self._actors = []
 
     # -------------------------------------------------------------- gym API
