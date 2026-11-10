@@ -1,8 +1,13 @@
-# WHEW
+<p align="center">
+  <img src="assets/whew-logo.svg" alt="WHEW! - reinforcement learning for near-accident driving" width="600">
+</p>
 
-**Reinforcement learning for near-accident driving in CARLA.**
+<p align="center"><i>Bold when it can be. Careful when it must be.</i></p>
 
-WHEW learns how to drive through the seconds before a potential crash, where a
+---
+
+**WHEW!** is a reinforcement learning project for near-accident driving in the CARLA simulator.
+It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
@@ -91,7 +96,7 @@ scripts/
 
 ## Background and credits
 
-* WHEW extends an earlier course project on conditional imitation learning + PPO in the
+* WHEW! extends an earlier course project on conditional imitation learning + PPO in the
   2D CARLO simulator, done jointly with Samrudhi Rao.
 * The aggressive / timid formulation follows Cao et al., *Reinforcement Learning based
   Control of Imitative Policies for Near-Accident Driving*, RSS 2020.
