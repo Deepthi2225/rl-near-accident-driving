@@ -16,15 +16,17 @@ from collections import Counter
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from whew.envs import PedestrianCrossingEnv  # noqa: E402
-from whew.experts import COMMAND_NAMES, expert_action  # noqa: E402
+from whew.experts import COMMAND_NAMES  # noqa: E402
+from whew.scenarios import SCENARIOS  # noqa: E402
 
 MAX_RETRIES = 5
 
 
 def make_env(args):
-    return PedestrianCrossingEnv(town=args.town, render_mode="human" if args.render else None,
+    env = SCENARIOS[args.scenario]["env"](town=args.town, render_mode="human" if args.render else None,
                                  no_rendering=not args.render)
+    env.expert_fn = SCENARIOS[args.scenario]["expert"]
+    return env
 
 
 def run_episode(env, command, seed):
@@ -32,7 +34,7 @@ def run_episode(env, command, seed):
     obs, _ = env.reset(seed=seed)
     done = False
     while not done:
-        a = expert_action(obs, command, env.lane_width)
+        a = env.expert_fn(obs, command, env.lane_width)
         rows.append((obs, a))
         obs, _, terminated, truncated, info = env.step([a])
         done = terminated or truncated
@@ -51,11 +53,13 @@ def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("--episodes", type=int, default=100, help="episodes per expert")
     p.add_argument("--town", type=str, default=None, help="e.g. Town04 (default: currently loaded map)")
-    p.add_argument("--out", type=str, default="data/pedestrian_crossing_expert.npz")
+    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--out", type=str, default=None, help="default: the scenario's data file")
     p.add_argument("--render", action="store_true", help="spectator camera follows the ego car")
     p.add_argument("--no-save", action="store_true")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
+    args.out = args.out or SCENARIOS[args.scenario]["data"]
 
     env = make_env(args)
     print(f"Map {env.map.name}: {len(env.routes)} candidate straight routes", flush=True)
@@ -88,11 +92,11 @@ def main():
                 cmd_rows.append(command)
                 ep_rows.append(ep)
             stats[command][info["outcome"]] += 1
-            min_dists[command].append(info["min_dist_to_ped"])
+            min_dists[command].append(info["min_dist"])
             if info["outcome"] == "success":
                 times[command].append(info["time"])
-            print(f"ep {ep:3d} {COMMAND_NAMES[command]:10s} ped_crosses={info['ped_crossed']!s:5s} "
-                  f"-> {info['outcome']:9s} t={info['time']:.1f}s min_dist={info['min_dist_to_ped']:.1f}m",
+            print(f"ep {ep:3d} {COMMAND_NAMES[command]:10s} "
+                  f"-> {info['outcome']:9s} t={info['time']:.1f}s min_dist={info['min_dist']:.1f}m",
                   flush=True)
             if not args.no_save:
                 save(args.out, obs_rows, act_rows, cmd_rows, ep_rows)

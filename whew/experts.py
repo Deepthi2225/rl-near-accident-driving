@@ -42,3 +42,30 @@ def expert_action(obs, command, lane_width=3.5):
             return -1.0
 
     return float(np.clip(0.5 * (target - v), -1.0, 1.0))
+
+
+# --------------------------------------------------------------------------- cut-in
+#            cruise  headway (s)  brake if time-to-collision below (s)  react to drifting cutter
+_CUT_IN_STYLE = {
+    AGGRESSIVE: (13.0,   0.5,          0.8,                                 False),
+    TIMID:      (10.0,   1.8,          3.5,                                 True),
+}
+
+
+def expert_action_cut_in(obs, command, lane_width=3.5):
+    """Rule-based driver for the cut-in scenario. Returns a in [-1, 1]."""
+    v, _, gap, lat, rel_v, vlat, in_lane = [float(x) for x in obs]
+    cruise, headway, ttc_brake, react_early = _CUT_IN_STYLE[command]
+    target = cruise
+
+    # the cutter matters if it is ahead and in our lane, or (timid only) drifting towards it
+    relevant = gap > -2.0 and (in_lane > 0.5 or (react_early and lat < 0 and vlat > 0.3 and gap < 25.0))
+    if relevant:
+        closing = -rel_v  # > 0 when we are catching up
+        ttc = gap / closing if closing > 0.1 else float("inf")
+        if gap < 1.0 or ttc < ttc_brake:
+            return -1.0
+        # follow the cutter at the preferred time headway
+        target = min(cruise, max(0.0, v + rel_v + 0.5 * (gap - headway * v)))
+
+    return float(np.clip(0.5 * (target - v), -1.0, 1.0))

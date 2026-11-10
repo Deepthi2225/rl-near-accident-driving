@@ -1,0 +1,148 @@
+{
+  "expert:aggressive": {
+    "episodes": 100,
+    "success": 0.87,
+    "collision": 0.13,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.2568965517241235,
+    "mean_min_dist": 4.143823068141938,
+    "mean_return": 41.25984377869399,
+    "mean_max_speed_kmh": 51.21124509409639
+  },
+  "expert:timid": {
+    "episodes": 100,
+    "success": 0.98,
+    "collision": 0.02,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 10.838775510204101,
+    "mean_min_dist": 5.186693458557129,
+    "mean_return": 47.84791837208709,
+    "mean_max_speed_kmh": 41.770621641044194
+  },
+  "coil:aggressive": {
+    "episodes": 100,
+    "success": 0.87,
+    "collision": 0.13,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.247126436781594,
+    "mean_min_dist": 4.165848970413208,
+    "mean_return": 41.45523394147044,
+    "mean_max_speed_kmh": 51.19221197334298
+  },
+  "coil:timid": {
+    "episodes": 100,
+    "success": 1.0,
+    "collision": 0.0,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 10.905500000000018,
+    "mean_min_dist": 5.215791161060333,
+    "mean_return": 51.154916162944566,
+    "mean_max_speed_kmh": 41.65444573146827
+  },
+  "ppo:checkpoints/cut_in/ppo_from_coil_s0.pt": {
+    "episodes": 100,
+    "success": 0.96,
+    "collision": 0.04,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 8.920312499999994,
+    "mean_min_dist": 4.833858132362366,
+    "mean_return": 51.74564500048816,
+    "mean_max_speed_kmh": 48.16436767093017
+  },
+  "ppo:checkpoints/cut_in/ppo_from_coil_s1.pt": {
+    "episodes": 100,
+    "success": 0.93,
+    "collision": 0.07,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 9.617741935483874,
+    "mean_min_dist": 5.078118107318878,
+    "mean_return": 44.11400781135028,
+    "mean_max_speed_kmh": 44.6167301641069
+  },
+  "ppo:checkpoints/cut_in/ppo_from_coil_s2.pt": {
+    "episodes": 100,
+    "success": 0.96,
+    "collision": 0.04,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 8.971874999999995,
+    "mean_min_dist": 4.9561111974716185,
+    "mean_return": 51.5289881062622,
+    "mean_max_speed_kmh": 48.92455528740896
+  },
+  "ppo:checkpoints/cut_in/ppo_scratch_s0.pt": {
+    "episodes": 100,
+    "success": 0.97,
+    "collision": 0.03,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 5.907216494845352,
+    "mean_min_dist": 3.950708086490631,
+    "mean_return": 42.47645932538236,
+    "mean_max_speed_kmh": 74.85379047712391
+  },
+  "ppo:checkpoints/cut_in/ppo_scratch_s1.pt": {
+    "episodes": 100,
+    "success": 0.96,
+    "collision": 0.04,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 9.650000000000016,
+    "mean_min_dist": 5.307639222145081,
+    "mean_return": 40.13883670989106,
+    "mean_max_speed_kmh": 55.13439254379234
+  },
+  "ppo:checkpoints/cut_in/ppo_scratch_s2.pt": {
+    "episodes": 100,
+    "success": 0.64,
+    "collision": 0.36,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.881249999999992,
+    "mean_min_dist": 4.991160533428192,
+    "mean_return": -8.759651112325514,
+    "mean_max_speed_kmh": 47.843712487876246
+  },
+  "switcher:checkpoints/cut_in/ppo_switcher_s0.pt": {
+    "episodes": 100,
+    "success": 0.95,
+    "collision": 0.05,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.773157894736828,
+    "mean_min_dist": 4.212543547153473,
+    "mean_return": 53.79293668835234,
+    "mean_max_speed_kmh": 51.18661984600142,
+    "aggressive_share": 0.7621393622597555
+  },
+  "switcher:checkpoints/cut_in/ppo_switcher_s1.pt": {
+    "episodes": 100,
+    "success": 0.95,
+    "collision": 0.05,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.737368421052618,
+    "mean_min_dist": 4.212892224788666,
+    "mean_return": 53.922714442712596,
+    "mean_max_speed_kmh": 51.19057802321656,
+    "aggressive_share": 0.7722449024158317
+  },
+  "switcher:checkpoints/cut_in/ppo_switcher_s2.pt": {
+    "episodes": 100,
+    "success": 0.95,
+    "collision": 0.05,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.596315789473669,
+    "mean_min_dist": 4.216215152740478,
+    "mean_return": 54.47088948485478,
+    "mean_max_speed_kmh": 51.2231298586635,
+    "aggressive_share": 0.819207630991221
+  }
+}

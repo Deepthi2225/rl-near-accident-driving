@@ -15,9 +15,9 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: v0.4. Scenario 1 works end to end: expert data, conditional imitation learning,
-> PPO fine-tuning, a high-level mode switcher (H-ReIL style) and a PPO-from-scratch baseline,
-> evaluated over 3 seeds. More scenarios are next.
+> Status: v0.5. Scenarios 1 (pedestrian dart-out) and 2 (sudden cut-in) work end to end:
+> expert data, conditional imitation learning, PPO fine-tuning, a high-level mode switcher
+> (H-ReIL style) and a PPO-from-scratch baseline, evaluated over 3 seeds each.
 
 ## Approach
 
@@ -34,7 +34,7 @@ crashes. The goal is a policy that is bold when it can be and careful when it mu
 | # | Scenario | Status |
 |---|----------|--------|
 | 1 | **Pedestrian dart-out**: a pedestrian steps into the road from behind a parked car | Working |
-| 2 | Sudden cut-in from the adjacent lane | Planned |
+| 2 | **Sudden cut-in**: a faster car swerves into the ego lane close ahead and often brakes hard | Working |
 | 3 | Red-light runner at an intersection | Planned |
 | 4 | Unprotected left turn with a fast oncoming car | Planned |
 
@@ -52,7 +52,21 @@ pedestrian. The pedestrian can only be observed once they leave the blind spot.
   m/s above the 50 km/h speed limit, -150 for a collision, +20 for reaching the goal.
   Being fast pays, but never at the cost of a crash or a speeding violation.
 
-## Results (scenario 1: pedestrian dart-out)
+### Scenario 2: sudden cut-in
+The ego car drives in the right lane of a two-lane road (same direction). A faster car starts
+2-8 m ahead in the left lane, paces the ego car at a random gap, and in 85% of episodes swerves
+into the ego lane 1.5-3.5 s into the episode, leaving only a few metres. In 70% of cut-ins it
+then brakes hard (70-100% brake, down to 0-3 m/s for 1-2 s) before driving on.
+
+* **Reaction delay**: every action takes effect 0.3 s after it is chosen (for all policies,
+  experts included), so braking only once the car is already in the lane is often too late.
+* **Action / reward**: the same as scenario 1.
+* **Observation** (7 values): ego speed, distance to goal, bumper gap to the other car, its
+  lateral offset, relative speed and lateral speed, and an in-my-lane flag.
+
+## Results
+
+### Scenario 1: pedestrian dart-out
 
 100 unseen scenarios per policy (the same scenario seeds for every policy, disjoint from the
 training data). RL methods: 3 training seeds each (200k steps for fine-tuning and from
@@ -89,6 +103,34 @@ scratch, 300k for the switcher), mean ± std over seeds; policies act determinis
   penalty remove that loophole; all numbers above are from the fixed scenario.
 * Caveats: one scenario, 200k training steps, 3 seeds. The collision difference between PPO
   from CoIL (3%) and the timid expert (1%) is small at 100 episodes.
+
+### Scenario 2: sudden cut-in
+
+Same protocol (100 unseen scenarios, 3 training seeds per RL method, mean ± std over seeds).
+
+| Policy | Success | Collision | Time to goal | Closest distance | Top speed | Return |
+|---|---|---|---|---|---|---|
+| Aggressive expert | 87% | 13% | 7.3 s | 4.1 m | 51 km/h | 41.3 |
+| Timid expert | 98% | 2% | 10.8 s | 5.2 m | 42 km/h | 47.8 |
+| CoIL, aggressive branch | 87% | 13% | 7.2 s | 4.2 m | 51 km/h | 41.5 |
+| CoIL, timid branch | **100%** | **0%** | 10.9 s | 5.2 m | 42 km/h | 51.2 |
+| PPO from CoIL (timid) | 95% ± 1% | 5% ± 1% | 9.2 ± 0.3 s | 5.0 ± 0.1 m | 47 ± 2 km/h | 49.1 ± 3.5 |
+| **PPO mode switcher (H-ReIL)** | 95% ± 0% | 5% ± 0% | **7.7 ± 0.1 s** | 4.2 ± 0.0 m | 51 ± 0 km/h | **54.1 ± 0.3** |
+| PPO from scratch | 86% ± 15% | 14% ± 15% | 7.8 ± 1.5 s | 4.7 ± 0.6 m | 59 ± 11 km/h | 24.6 ± 23.6 |
+
+<p align="center"><img src="results/cut_in/learning_curves.png" alt="Scenario 2 learning curves over 3 seeds" width="100%"></p>
+
+* **Here the mode switcher wins**, the opposite of scenario 1. It is almost as fast as the
+  aggressive driver (7.7 s vs 7.3 s) but crashes far less (5% vs 13%), has the highest return,
+  and all three seeds agree (it picks the aggressive branch 76-82% of the time). A likely
+  reason: the other car is visible from the start, so the switcher can tell when cutting
+  in is imminent and hand over to the timid branch, while in scenario 1 the danger is hidden.
+* **PPO from CoIL** again makes the timid driver faster (10.9 s to 9.2 s), but this time pays
+  for it with a few collisions (0% to 5%).
+* **The safest policy is the CoIL timid branch** (100% success, 0% collisions), but it is the
+  slowest. The reward accepts 5% collisions in exchange for speed: a larger collision penalty
+  would move the RL policies towards the timid end.
+* **PPO from scratch** is again the least reliable: one seed is good, one has a negative return.
 
 ---
 
@@ -142,14 +184,27 @@ python scripts/plot_results.py   # results/learning_curves.png and results/summa
 python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil_s0.pt --episodes 5 --render
 ```
 
+Every script takes `--scenario pedestrian` (default) or `--scenario cut_in`. Scenario 2 files
+go to `data/cut_in_expert.npz`, `checkpoints/cut_in/` and `results/cut_in/`, e.g.
+
+```bash
+python scripts/collect_expert.py --scenario cut_in --episodes 100
+python scripts/train_coil.py --scenario cut_in
+python scripts/train_switcher.py --scenario cut_in --steps 300000 --seed 0 --name ppo_switcher_s0
+python scripts/evaluate.py --scenario cut_in --policies switcher:checkpoints/cut_in/ppo_switcher_s0.pt --episodes 5 --render
+```
+
 Each PPO run takes about 5-10 minutes (200k steps) on an RTX 4060 laptop with CARLA headless.
 
 ## Project structure
 
 ```
 whew/
+  envs/base.py                  # shared CARLA plumbing: routes, actors, reward, reaction delay
   envs/pedestrian_crossing.py   # Scenario 1 as a gymnasium environment
-  experts.py                    # aggressive and timid rule-based drivers
+  envs/cut_in.py                # Scenario 2 as a gymnasium environment
+  scenarios.py                  # scenario registry: env, expert, data / checkpoint / result paths
+  experts.py                    # aggressive and timid rule-based drivers for each scenario
   coil.py                       # conditional imitation learning network (one branch per style)
   ppo.py                        # PPO (GAE): CoIL-shaped Gaussian actor, or categorical mode switcher
 scripts/
@@ -159,7 +214,7 @@ scripts/
   train_switcher.py             # high-level mode switcher (H-ReIL style)
   evaluate.py                   # compare policies on the same unseen scenarios
   plot_results.py               # learning curves
-results/                        # evaluation JSON, learning-curve CSVs and plot
+results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/ for scenario 2)
 ```
 
 ## Roadmap
@@ -170,8 +225,9 @@ results/                        # evaluation JSON, learning-curve CSVs and plot
 - [x] Evaluation: success, collisions, time to goal, closest distance; learning curves
 - [x] Several seeds per method and more evaluation episodes
 - [x] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
-- [ ] Make the switcher more stable (e.g. memory of recent observations, more modes)
-- [ ] Scenarios 2-4, then full steering control and camera input
+- [x] Scenario 2: sudden cut-in, with a 0.3 s reaction delay
+- [ ] Make the switcher more stable in scenario 1 (e.g. memory of recent observations, more modes)
+- [ ] Scenarios 3-4, then full steering control and camera input
 
 ## Background and credits
 

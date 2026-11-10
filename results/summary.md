@@ -1,4 +1,4 @@
-| Policy | Runs | Success rate | Collision rate | Timeout rate | Time to goal (s) | Closest to pedestrian (m) | Top speed (km/h) | Return |
+| Policy | Runs | Success rate | Collision rate | Timeout rate | Time to goal (s) | Closest distance (m) | Top speed (km/h) | Return |
 |---|---|---|---|---|---|---|---|---|
 | Aggressive expert | 1 x 100 eps | 66% | 34% | 0% | 7.3 | 2.9 | 44.6 | 2.0 |
 | Timid expert | 1 x 100 eps | 98% | 1% | 1% | 14.1 | 7.4 | 34.3 | 36.2 |

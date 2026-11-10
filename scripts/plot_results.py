@@ -15,8 +15,13 @@ import json
 import os
 import re
 
+import sys
+
 import matplotlib
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from whew.scenarios import SCENARIOS  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -27,7 +32,7 @@ METHODS = {"ppo_from_coil": ("PPO from CoIL (timid)", "#e8452c"),
 REFS = {"expert:aggressive": ("Aggressive expert", "--"), "expert:timid": ("Timid expert", ":")}
 METRICS = [("success", "Success rate", True), ("collision", "Collision rate", True),
            ("timeout", "Timeout rate", True), ("mean_time_to_goal", "Time to goal (s)", False),
-           ("mean_min_dist_to_ped", "Closest to pedestrian (m)", False),
+           ("mean_min_dist", "Closest distance (m)", False),
            ("mean_max_speed_kmh", "Top speed (km/h)", False), ("mean_return", "Return", False)]
 
 
@@ -42,13 +47,13 @@ def method_of(spec):
     return m.group(1) if m else spec
 
 
-def plot_curves(evals, out):
+def plot_curves(evals, out, res_dir, title):
     panels = [("success", "Success rate", 1.0), ("collision", "Collision rate", 1.0),
               ("mean_time_to_goal", "Time to goal (s)", None), ("mean_return", "Episode return", None)]
     fig, axes = plt.subplots(1, 4, figsize=(18, 4.2))
     n_seeds = {}
     for method, (label, color) in METHODS.items():
-        runs = [read_csv(p) for p in sorted(glob.glob(f"results/{method}_s*.csv"))]
+        runs = [read_csv(p) for p in sorted(glob.glob(f"{res_dir}/{method}_s*.csv"))]
         if not runs:
             continue
         n_seeds[method] = len(runs)
@@ -58,18 +63,18 @@ def plot_curves(evals, out):
             y = np.stack([r[col][:n] for r in runs])
             ax.plot(steps, np.nanmean(y, 0), color=color, lw=2, label=f"{label} ({len(runs)} seeds)")
             ax.fill_between(steps, np.nanmin(y, 0), np.nanmax(y, 0), color=color, alpha=0.15, lw=0)
-    for ax, (col, title, ymax) in zip(axes, panels):
+    for ax, (col, panel_title, ymax) in zip(axes, panels):
         for key, (label, ls) in REFS.items():
             if key in evals and evals[key].get(col) is not None:
                 ax.axhline(evals[key][col], color="#8c8c8c", ls=ls, lw=1.2, label=label)
-        ax.set_title(title)
+        ax.set_title(panel_title)
         ax.set_xlabel("Environment steps (thousands)")
         if ymax:
             ax.set_ylim(-0.02, ymax + 0.02)
         ax.grid(alpha=0.3)
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].legend(frameon=False, fontsize=9)
-    fig.suptitle("WHEW! - pedestrian dart-out: training curves (rolling 50 episodes; line = mean, band = min-max "
+    fig.suptitle(f"WHEW! - {title}: training curves (rolling 50 episodes; line = mean, band = min-max "
                  "over seeds)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out, dpi=130)
@@ -105,12 +110,16 @@ def summary_table(evals, out):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--eval", default="results/eval_pedestrian_crossing.json")
+    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--eval", default=None, help="default: the scenario's evaluation file")
     args = p.parse_args()
+    sc = SCENARIOS[args.scenario]
+    args.eval = args.eval or sc["eval"]
+    res_dir = sc["results"]
     evals = json.load(open(args.eval)) if os.path.exists(args.eval) else {}
-    plot_curves(evals, "results/learning_curves.png")
+    plot_curves(evals, f"{res_dir}/learning_curves.png", res_dir, sc["title"])
     if evals:
-        summary_table(evals, "results/summary.md")
+        summary_table(evals, f"{res_dir}/summary.md")
 
 
 if __name__ == "__main__":

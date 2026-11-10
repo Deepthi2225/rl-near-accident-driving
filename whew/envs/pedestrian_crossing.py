@@ -23,127 +23,30 @@ Observation (7 floats):
 
 Requires a running CARLA 0.9.15 server.
 """
-import math
-
 import carla
-import gymnasium as gym
 import numpy as np
-from gymnasium import spaces
+
+from .base import CarlaScenarioEnv
 
 HIDDEN_LONG, HIDDEN_LAT = 60.0, 10.0
 
 
-class PedestrianCrossingEnv(gym.Env):
-    metadata = {"render_modes": ["human"]}
+class PedestrianCrossingEnv(CarlaScenarioEnv):
+    def __init__(self, cross_prob=0.8, **kwargs):
+        self.cross_prob = cross_prob
+        super().__init__(**kwargs)
+        self.parked_bp = self.blueprints.find("vehicle.audi.a2")
+        self.walker_bps = list(self.blueprints.filter("walker.pedestrian.*"))
 
-    def __init__(self, host="localhost", port=2000, town=None, dt=0.05, max_time=20.0,
-                 route_length=80.0, cross_prob=0.8, render_mode=None, no_rendering=False,
-                 timeout=30.0, time_penalty=4.0, speed_limit=13.9, speeding_penalty=2.0):
-        super().__init__()
-        self.dt, self.max_time, self.route_length = dt, max_time, route_length
-        self.cross_prob, self.render_mode = cross_prob, render_mode
-        self.time_penalty = time_penalty  # reward lost per second of driving
-        self.speed_limit = speed_limit  # m/s (13.9 m/s = 50 km/h, a city speed limit)
-        self.speeding_penalty = speeding_penalty  # per (m/s over the limit) per second
-
-        self.client = carla.Client(host, port)
-        self.client.set_timeout(timeout)
-        if town and not self.client.get_world().get_map().name.endswith(town):
-            self.client.load_world(town)
-        self.world = self.client.get_world()
-        self.map = self.world.get_map()
-
-        self._orig_settings = self.world.get_settings()
-        settings = self.world.get_settings()
-        settings.synchronous_mode = True
-        settings.fixed_delta_seconds = dt
-        settings.no_rendering_mode = no_rendering
-        self.world.apply_settings(settings)
-
-        bps = self.world.get_blueprint_library()
-        self.ego_bp = bps.find("vehicle.tesla.model3")
-        self.ego_bp.set_attribute("role_name", "hero")
-        self.parked_bp = bps.find("vehicle.audi.a2")
-        self.walker_bps = list(bps.filter("walker.pedestrian.*"))
-        self.collision_bp = bps.find("sensor.other.collision")
-
-        self.routes = self._find_straight_routes()
-        if not self.routes:
-            raise RuntimeError(f"No straight {route_length:.0f} m right-most lane found in {self.map.name}; "
-                               "try town='Town04' or a shorter route_length.")
-
-        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(7,), dtype=np.float32)
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
-        self._actors = []
-
-    # ------------------------------------------------------------------ setup
-    def _find_straight_routes(self, step=2.0):
-        n = int(self.route_length / step)
-        routes, seen = [], set()
-        for sp in self.map.get_spawn_points():
-            wp = self.map.get_waypoint(sp.location)
-            key = (wp.road_id, wp.lane_id)
-            if key in seen or wp.is_junction:
-                continue
-            right = wp.get_right_lane()
-            if right is not None and right.lane_type == carla.LaneType.Driving:
-                continue  # need the right-most driving lane (pedestrian comes from the kerb)
-            route, ok = [wp], True
-            for _ in range(n):
-                nxt = route[-1].next(step)
-                if not nxt or nxt[0].is_junction:
-                    ok = False
-                    break
-                route.append(nxt[0])
-            if not ok:
-                continue
-            yaw0 = wp.transform.rotation.yaw
-            if any(abs((w.transform.rotation.yaw - yaw0 + 180) % 360 - 180) > 3 for w in route):
-                continue
-            seen.add(key)
-            routes.append(route)
-        return routes
-
-    def _frame(self, loc):
-        """(s, l): distance along the route and lateral offset (+ right) from the lane centre."""
-        d = loc - self.origin
-        return d.x * self.fwd.x + d.y * self.fwd.y, d.x * self.right.x + d.y * self.right.y
-
-    def _lane_point(self, s, lateral=0.0, z=0.0):
-        wp = self.route[int(np.clip(round(s / 2.0), 0, len(self.route) - 1))]
-        loc = wp.transform.location + self.right * lateral
-        return carla.Location(loc.x, loc.y, loc.z + z)
-
-    def _destroy(self):
-        # Destroy by id through a server-side batch: after collisions the client can wrongly
-        # report actors as dead, and actor.destroy() then leaves them in the world.
-        for a in self._actors:
-            if isinstance(a, carla.Sensor):
-                try:
-                    a.stop()
-                except RuntimeError:
-                    pass
-        # Async batch + one tick: apply_batch_sync can occasionally hang in synchronous mode.
-        if self._actors:
-            self.client.apply_batch([carla.command.DestroyActor(a.id) for a in reversed(self._actors)])
-            if self.world.get_settings().synchronous_mode:
-                self.world.tick()
-        self._actors = []
-
-    # -------------------------------------------------------------- gym API
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self._destroy()
         rng = self.np_random
 
         for _ in range(20):  # retry if a spawn location is blocked
-            self.route = self.routes[rng.integers(len(self.routes))]
-            start = self.route[0].transform
-            self.origin, self.fwd, self.right = start.location, start.get_forward_vector(), start.get_right_vector()
-            self.lane_width = self.route[0].lane_width
-            self.s_goal = self.route_length - 5.0
+            self._set_route(self.routes[rng.integers(len(self.routes))])
             self.s_park = float(rng.uniform(35.0, 55.0))
-            rot = carla.Rotation(yaw=start.rotation.yaw)
+            rot = carla.Rotation(yaw=self.yaw)
 
             ego = self.world.try_spawn_actor(
                 self.ego_bp, carla.Transform(self._lane_point(0.0, z=0.4), rot))
@@ -157,7 +60,7 @@ class PedestrianCrossingEnv(gym.Env):
                 walker_bp.set_attribute("is_invincible", "false")
             walker = self.world.try_spawn_actor(walker_bp, carla.Transform(
                 self._lane_point(self.s_park + 3.5, self.lane_width / 2 + 1.8, z=1.0),
-                carla.Rotation(yaw=start.rotation.yaw - 90)))
+                carla.Rotation(yaw=self.yaw - 90)))
             if parked is None or walker is None:
                 self._actors += [a for a in (parked, walker) if a is not None]
                 self._destroy()
@@ -169,10 +72,7 @@ class PedestrianCrossingEnv(gym.Env):
 
         parked.set_simulate_physics(False)
         self.ego, self.walker = ego, walker
-        self.collision = None
-        sensor = self.world.spawn_actor(self.collision_bp, carla.Transform(), attach_to=ego)
-        sensor.listen(lambda e: setattr(self, "collision", e.other_actor.type_id))
-        self._actors.append(sensor)
+        self._attach_collision_sensor()
 
         # scenario randomisation
         self.will_cross = bool(rng.random() < self.cross_prob)
@@ -184,82 +84,31 @@ class PedestrianCrossingEnv(gym.Env):
         self.triggered = False
 
         # let everything settle, then give the ego car its initial speed
-        ego.apply_control(carla.VehicleControl(brake=1.0))
-        for _ in range(10):
-            self.world.tick()
-        v0 = float(rng.uniform(7.0, 11.0))
-        ego.set_target_velocity(carla.Vector3D(self.fwd.x * v0, self.fwd.y * v0, 0.0))
+        self._settle([ego])
+        self._launch(ego, float(rng.uniform(7.0, 11.0)))
         self.world.tick()
-
-        self.t = 0.0
-        self.s_prev = self._frame(ego.get_location())[0]
-        self.min_dist = float("inf")
-        self.max_speed = 0.0
-        self._follow_camera()
+        self._start_episode()
         return self._obs(), {}
 
-    def _steer(self, s_ego):
-        tr = self.ego.get_transform()
-        target = self._lane_point(s_ego + 8.0)
-        v = target - tr.location
-        f = tr.get_forward_vector()
-        angle = math.atan2(f.x * v.y - f.y * v.x, f.x * v.x + f.y * v.y)
-        return float(np.clip(1.5 * angle, -0.5, 0.5))
-
-    def step(self, action):
-        a = float(np.clip(np.asarray(action, dtype=np.float32).reshape(-1)[0], -1.0, 1.0))
-        s_ego = self._frame(self.ego.get_location())[0]
-        self.ego.apply_control(carla.VehicleControl(
-            throttle=max(a, 0.0), brake=max(-a, 0.0), steer=self._steer(s_ego)))
-
+    def _before_tick(self, s_ego):
         s_ped = self._frame(self.walker.get_location())[0]
         if self.will_cross and not self.triggered:
-            v = self.ego.get_velocity()
             gap = s_ped - s_ego
-            tta = gap / max(math.hypot(v.x, v.y), 0.1)
+            tta = gap / max(self._speed(self.ego), 0.1)
             if gap < self.trigger_dist or tta < self.trigger_tta:
                 self.triggered = True
         if self.triggered:
             self.walker.apply_control(carla.WalkerControl(
                 direction=carla.Vector3D(-self.right.x, -self.right.y, 0.0), speed=self.ped_speed))
 
-        self.world.tick()
-        self.t += self.dt
-
-        ego_loc = self.ego.get_location()
-        s_ego, l_ego = self._frame(ego_loc)
+    def _after_tick(self, ego_loc):
         self.min_dist = min(self.min_dist, ego_loc.distance(self.walker.get_location()))
 
-        v = self.ego.get_velocity()
-        speed = math.hypot(v.x, v.y)
-        self.max_speed = max(self.max_speed, speed)
-        speeding = max(0.0, speed - self.speed_limit)
-        reward = (s_ego - self.s_prev) - self.time_penalty * self.dt - self.speeding_penalty * speeding * self.dt
-        self.s_prev = s_ego
-        outcome = None
-        if self.collision is not None:
-            reward -= 150.0
-            outcome = "collision"
-        elif s_ego >= self.s_goal:
-            reward += 20.0
-            outcome = "success"
-        elif abs(l_ego) > 2.5:
-            reward -= 50.0
-            outcome = "off_road"
-        terminated = outcome is not None
-        truncated = not terminated and self.t >= self.max_time
-        if truncated:
-            outcome = "timeout"
-
-        self._follow_camera()
-        info = {"outcome": outcome, "time": self.t, "min_dist_to_ped": self.min_dist,
-                "collided_with": self.collision, "ped_crossed": self.will_cross,
-                "speeding": speeding > 0, "max_speed": self.max_speed}
-        return self._obs(), float(reward), terminated, truncated, info
+    def _extra_info(self):
+        return {"min_dist_to_ped": self.min_dist, "ped_crossed": self.will_cross}
 
     def _obs(self):
-        v = self.ego.get_velocity()
-        speed = math.hypot(v.x, v.y)
+        speed = self._speed(self.ego)
         s_ego, _ = self._frame(self.ego.get_location())
         s_ped, l_ped = self._frame(self.walker.get_location())
         wv = self.walker.get_velocity()
@@ -272,22 +121,3 @@ class PedestrianCrossingEnv(gym.Env):
             ped = [HIDDEN_LONG, HIDDEN_LAT, 0.0]
         return np.array([speed, self.s_goal - s_ego, self.s_park - s_ego, float(visible), *ped],
                         dtype=np.float32)
-
-    def _follow_camera(self):
-        if self.render_mode != "human":
-            return
-        tr = self.ego.get_transform()
-        f = tr.get_forward_vector()
-        loc = tr.location - f * 10.0 + carla.Location(z=6.0)
-        self.world.get_spectator().set_transform(
-            carla.Transform(loc, carla.Rotation(pitch=-20, yaw=tr.rotation.yaw)))
-
-    def render(self):
-        self._follow_camera()
-
-    def close(self):
-        self._destroy()
-        try:
-            self.world.apply_settings(self._orig_settings)
-        except RuntimeError:
-            pass

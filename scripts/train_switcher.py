@@ -21,14 +21,15 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from whew.coil import CoILPolicy  # noqa: E402
-from whew.envs import PedestrianCrossingEnv  # noqa: E402
 from whew.experts import AGGRESSIVE  # noqa: E402
+from whew.scenarios import SCENARIOS  # noqa: E402
 from whew.ppo import PPO, RolloutBuffer, SwitchActorCritic  # noqa: E402
 
 
 def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--coil", default="checkpoints/coil.pt")
+    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--coil", default=None)
     p.add_argument("--steps", type=int, default=100_000, help="simulation steps")
     p.add_argument("--interval", type=int, default=5, help="simulation steps per mode decision")
     p.add_argument("--rollout", type=int, default=512, help="mode decisions per PPO update")
@@ -36,6 +37,9 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--town", default=None)
     args = p.parse_args()
+    sc = SCENARIOS[args.scenario]
+    args.coil = args.coil or sc["coil"]
+    ckpt_dir, res_dir = sc["checkpoints"], sc["results"]
     name = args.name or f"ppo_switcher_s{args.seed}"
 
     torch.manual_seed(args.seed)
@@ -44,7 +48,7 @@ def main():
     model = SwitchActorCritic(obs_dim=len(coil.obs_mean), n_modes=coil.net.n_commands)
     ppo = PPO(model, lr_actor=3e-4, lr_critic=1e-3, gamma=0.99 ** args.interval, entropy_coef=0.01)
 
-    make_env = lambda: PedestrianCrossingEnv(town=args.town, no_rendering=True)  # noqa: E731
+    make_env = lambda: sc["env"](town=args.town, no_rendering=True)  # noqa: E731
     holder = {"env": make_env()}
 
     def reconnect(err):
@@ -64,9 +68,9 @@ def main():
                 reconnect(e)
         raise RuntimeError("CARLA keeps failing; is the simulator running?")
 
-    os.makedirs("checkpoints", exist_ok=True)
-    os.makedirs("results", exist_ok=True)
-    csv_path = f"results/{name}.csv"
+    os.makedirs(ckpt_dir, exist_ok=True)
+    os.makedirs(res_dir, exist_ok=True)
+    csv_path = f"{res_dir}/{name}.csv"
     log = open(csv_path, "w", newline="")
     writer = csv.writer(log)
     writer.writerow(["iteration", "steps", "episodes", "success", "collision", "timeout", "off_road",
@@ -139,7 +143,7 @@ def main():
                 torch.save({"policy": model.policy.state_dict(), "interval": args.interval,
                             "n_modes": coil.net.n_commands, "obs_dim": len(coil.obs_mean),
                             "coil": args.coil, "iteration": it, "rolling_return": best},
-                           f"checkpoints/{name}.pt")
+                           f"{ckpt_dir}/{name}.pt")
     finally:
         log.close()
         try:
@@ -149,8 +153,8 @@ def main():
     if best == -float("inf"):
         torch.save({"policy": model.policy.state_dict(), "interval": args.interval,
                     "n_modes": coil.net.n_commands, "obs_dim": len(coil.obs_mean),
-                    "coil": args.coil, "iteration": it, "rolling_return": None}, f"checkpoints/{name}.pt")
-    print(f"Done. Best rolling return {best:.1f}; model checkpoints/{name}.pt; curve {csv_path}")
+                    "coil": args.coil, "iteration": it, "rolling_return": None}, f"{ckpt_dir}/{name}.pt")
+    print(f"Done. Best rolling return {best:.1f}; model {ckpt_dir}/{name}.pt; curve {csv_path}")
 
 
 if __name__ == "__main__":

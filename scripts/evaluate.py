@@ -23,8 +23,8 @@ import torch  # noqa: E402
 
 from whew.coil import CoILNet, CoILPolicy  # noqa: E402
 from whew.ppo import SwitchActorCritic  # noqa: E402
-from whew.envs import PedestrianCrossingEnv  # noqa: E402
-from whew.experts import COMMAND_NAMES, expert_action  # noqa: E402
+from whew.experts import COMMAND_NAMES  # noqa: E402
+from whew.scenarios import SCENARIOS  # noqa: E402
 
 COMMANDS = {v: k for k, v in COMMAND_NAMES.items()}
 EVAL_SEED_OFFSET = 100_000  # data collection uses seeds 0..N
@@ -56,7 +56,7 @@ class SwitcherPolicy:
         return float(np.mean([m == COMMANDS["aggressive"] for m in self.modes])) if self.modes else float("nan")
 
 
-def make_policy(spec, coil_path):
+def make_policy(spec, coil_path, expert_fn):
     kind, arg = spec.split(":", 1)
     if kind == "switcher":
         return SwitcherPolicy(arg)
@@ -68,7 +68,7 @@ def make_policy(spec, coil_path):
         return lambda obs, env: pol.act(obs, ckpt["command"])
     command = COMMANDS[arg]
     if kind == "expert":
-        return lambda obs, env: expert_action(obs, command, env.lane_width)
+        return lambda obs, env: expert_fn(obs, command, env.lane_width)
     if kind == "coil":
         coil = CoILPolicy.load(coil_path)
         return lambda obs, env: coil.act(obs, command)
@@ -90,19 +90,22 @@ def main():
     p.add_argument("--policies", nargs="+", default=["expert:aggressive", "expert:timid",
                                                      "coil:aggressive", "coil:timid"])
     p.add_argument("--episodes", type=int, default=50)
-    p.add_argument("--coil", default="checkpoints/coil.pt")
+    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--coil", default=None, help="default: the scenario's CoIL checkpoint")
     p.add_argument("--town", default=None)
     p.add_argument("--render", action="store_true")
-    p.add_argument("--out", default="results/eval_pedestrian_crossing.json")
+    p.add_argument("--out", default=None, help="default: the scenario's evaluation file")
     args = p.parse_args()
+    sc = SCENARIOS[args.scenario]
+    args.coil, args.out = args.coil or sc["coil"], args.out or sc["eval"]
 
-    make_env = lambda: PedestrianCrossingEnv(  # noqa: E731
+    make_env = lambda: sc["env"](  # noqa: E731
         town=args.town, render_mode="human" if args.render else None, no_rendering=not args.render)
     env = make_env()
     results = {}
     try:
         for spec in args.policies:
-            policy = make_policy(spec, args.coil)
+            policy = make_policy(spec, args.coil, sc["expert"])
             outcomes, times, dists, returns, vmax, shares = Counter(), [], [], [], [], []
             for i in range(args.episodes):
                 for attempt in range(MAX_RETRIES):
@@ -120,7 +123,7 @@ def main():
                 else:
                     raise RuntimeError("CARLA keeps failing; is the simulator running?")
                 outcomes[info["outcome"]] += 1
-                dists.append(info["min_dist_to_ped"])
+                dists.append(info["min_dist"])
                 returns.append(ret)
                 vmax.append(info["max_speed"])
                 if isinstance(policy, SwitcherPolicy):
@@ -135,7 +138,7 @@ def main():
                 "timeout": outcomes["timeout"] / n,
                 "off_road": outcomes["off_road"] / n,
                 "mean_time_to_goal": float(np.mean(times)) if times else None,
-                "mean_min_dist_to_ped": float(np.mean(dists)),
+                "mean_min_dist": float(np.mean(dists)),
                 "mean_return": float(np.mean(returns)),
                 "mean_max_speed_kmh": 3.6 * float(np.mean(vmax)),
             }
@@ -144,7 +147,7 @@ def main():
             r = results[spec]
             print(f"{spec:18s} success {r['success']:6.1%}  collision {r['collision']:6.1%}  "
                   f"timeout {r['timeout']:5.1%}  time {r['mean_time_to_goal'] or float('nan'):5.1f}s  "
-                  f"min dist {r['mean_min_dist_to_ped']:4.1f}m  return {r['mean_return']:6.1f}  "
+                  f"min dist {r['mean_min_dist']:4.1f}m  return {r['mean_return']:6.1f}  "
                   f"top speed {r['mean_max_speed_kmh']:5.1f} km/h"
                   + (f"  aggressive {r['aggressive_share']:.0%} of decisions" if 'aggressive_share' in r else ""),
                   flush=True)

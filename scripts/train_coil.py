@@ -17,18 +17,22 @@ import torch.nn as nn
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from whew.coil import CoILNet, CoILPolicy  # noqa: E402
 from whew.experts import COMMAND_NAMES  # noqa: E402
+from whew.scenarios import SCENARIOS  # noqa: E402
 
 
 def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--data", default="data/pedestrian_crossing_expert.npz")
-    p.add_argument("--out", default="checkpoints/coil.pt")
+    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--data", default=None, help="default: the scenario's data file")
+    p.add_argument("--out", default=None, help="default: the scenario's CoIL checkpoint")
     p.add_argument("--epochs", type=int, default=60)
     p.add_argument("--batch", type=int, default=512)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--val-frac", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
+    sc = SCENARIOS[args.scenario]
+    args.data, args.out = args.data or sc["data"], args.out or sc["coil"]
 
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
