@@ -2,7 +2,9 @@
 Near-accident scenario 1: pedestrian dart-out from behind a parked car.
 
 The ego car drives along a straight road. A parked car on the right hides a
-pedestrian, who may step into the road when the ego car gets close. The
+pedestrian, who may step into the road when the ego car is within 12-30 m or
+1-2 s away (whichever comes first, so speeding cannot outrun them).
+Driving above the 50 km/h speed limit is penalised. The
 pedestrian is only observable once they step out from behind the parked car,
 so the agent has to decide how fast to pass the blind spot.
 
@@ -36,11 +38,13 @@ class PedestrianCrossingEnv(gym.Env):
 
     def __init__(self, host="localhost", port=2000, town=None, dt=0.05, max_time=20.0,
                  route_length=80.0, cross_prob=0.8, render_mode=None, no_rendering=False,
-                 timeout=30.0, time_penalty=4.0):
+                 timeout=30.0, time_penalty=4.0, speed_limit=13.9, speeding_penalty=2.0):
         super().__init__()
         self.dt, self.max_time, self.route_length = dt, max_time, route_length
         self.cross_prob, self.render_mode = cross_prob, render_mode
         self.time_penalty = time_penalty  # reward lost per second of driving
+        self.speed_limit = speed_limit  # m/s (13.9 m/s = 50 km/h, a city speed limit)
+        self.speeding_penalty = speeding_penalty  # per (m/s over the limit) per second
 
         self.client = carla.Client(host, port)
         self.client.set_timeout(timeout)
@@ -172,7 +176,10 @@ class PedestrianCrossingEnv(gym.Env):
 
         # scenario randomisation
         self.will_cross = bool(rng.random() < self.cross_prob)
+        # The pedestrian steps out when the car is within 12-30 m OR 1-2 s away, whichever
+        # comes first. The time-based part means speeding cannot outrun the pedestrian.
         self.trigger_dist = float(rng.uniform(12.0, 30.0))
+        self.trigger_tta = float(rng.uniform(1.0, 2.0))
         self.ped_speed = float(rng.uniform(1.2, 2.5))
         self.triggered = False
 
@@ -187,6 +194,7 @@ class PedestrianCrossingEnv(gym.Env):
         self.t = 0.0
         self.s_prev = self._frame(ego.get_location())[0]
         self.min_dist = float("inf")
+        self.max_speed = 0.0
         self._follow_camera()
         return self._obs(), {}
 
@@ -205,8 +213,12 @@ class PedestrianCrossingEnv(gym.Env):
             throttle=max(a, 0.0), brake=max(-a, 0.0), steer=self._steer(s_ego)))
 
         s_ped = self._frame(self.walker.get_location())[0]
-        if self.will_cross and not self.triggered and s_ped - s_ego < self.trigger_dist:
-            self.triggered = True
+        if self.will_cross and not self.triggered:
+            v = self.ego.get_velocity()
+            gap = s_ped - s_ego
+            tta = gap / max(math.hypot(v.x, v.y), 0.1)
+            if gap < self.trigger_dist or tta < self.trigger_tta:
+                self.triggered = True
         if self.triggered:
             self.walker.apply_control(carla.WalkerControl(
                 direction=carla.Vector3D(-self.right.x, -self.right.y, 0.0), speed=self.ped_speed))
@@ -218,7 +230,11 @@ class PedestrianCrossingEnv(gym.Env):
         s_ego, l_ego = self._frame(ego_loc)
         self.min_dist = min(self.min_dist, ego_loc.distance(self.walker.get_location()))
 
-        reward = (s_ego - self.s_prev) - self.time_penalty * self.dt
+        v = self.ego.get_velocity()
+        speed = math.hypot(v.x, v.y)
+        self.max_speed = max(self.max_speed, speed)
+        speeding = max(0.0, speed - self.speed_limit)
+        reward = (s_ego - self.s_prev) - self.time_penalty * self.dt - self.speeding_penalty * speeding * self.dt
         self.s_prev = s_ego
         outcome = None
         if self.collision is not None:
@@ -237,7 +253,8 @@ class PedestrianCrossingEnv(gym.Env):
 
         self._follow_camera()
         info = {"outcome": outcome, "time": self.t, "min_dist_to_ped": self.min_dist,
-                "collided_with": self.collision, "ped_crossed": self.will_cross}
+                "collided_with": self.collision, "ped_crossed": self.will_cross,
+                "speeding": speeding > 0, "max_speed": self.max_speed}
         return self._obs(), float(reward), terminated, truncated, info
 
     def _obs(self):

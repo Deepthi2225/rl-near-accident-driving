@@ -15,8 +15,8 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: v0.2. Scenario 1 works end to end: expert data, conditional imitation learning,
-> PPO fine-tuning and a PPO-from-scratch baseline. More scenarios are next.
+> Status: v0.3. Scenario 1 works end to end: expert data, conditional imitation learning,
+> PPO fine-tuning and a PPO-from-scratch baseline, evaluated over 3 seeds. More scenarios are next.
 
 ## Approach
 
@@ -37,39 +37,47 @@ crashes. The goal is a policy that is bold when it can be and careful when it mu
 
 ### Scenario 1: pedestrian dart-out
 The ego car drives down a straight road. A parked car hides a pedestrian, who steps
-out (80% of episodes) when the ego car gets close, at a random distance and walking speed.
-The pedestrian can only be observed once they leave the blind spot.
+out (80% of episodes) when the ego car is within 12-30 m **or** 1-2 s away, whichever comes
+first, at a random walking speed. The time-based trigger means speeding cannot outrun the
+pedestrian. The pedestrian can only be observed once they leave the blind spot.
 
 * **Action**: one value in [-1, 1] (throttle if positive, brake if negative); a built-in
   controller keeps the car in its lane.
 * **Observation** (7 values): ego speed, distance to goal, distance to the parked car,
   pedestrian visible flag, pedestrian longitudinal / lateral position and lateral speed.
-* **Reward**: +1 per metre of progress, -4 per second of driving, -150 for a collision,
-  +20 for reaching the goal. Being fast pays, but never at the cost of a crash.
+* **Reward**: +1 per metre of progress, -4 per second of driving, -2 per second for each
+  m/s above the 50 km/h speed limit, -150 for a collision, +20 for reaching the goal.
+  Being fast pays, but never at the cost of a crash or a speeding violation.
 
 ## Results (scenario 1: pedestrian dart-out)
 
-50 unseen scenarios per policy (same scenario seeds for every policy, disjoint from the
-training data). PPO policies use their mean action.
+100 unseen scenarios per policy (the same scenario seeds for every policy, disjoint from the
+training data). PPO: 3 training seeds per method, 200k steps each, mean ± std over seeds;
+policies use their mean action.
 
-| Policy | Success | Collision | Time to goal | Closest to pedestrian | Return |
-|---|---|---|---|---|---|
-| Aggressive expert | 72% | 28% | 7.5 s | 3.2 m | 12.9 |
-| Timid expert | 96% | 2% | 14.0 s | 8.0 m | 34.2 |
-| CoIL, aggressive branch | 72% | 28% | 7.4 s | 3.1 m | 13.1 |
-| CoIL, timid branch | 96% | 2% | 13.9 s | 8.0 m | 34.5 |
-| **PPO from CoIL (timid)** | **96%** | 4% | **11.1 s** | 5.8 m | **42.8** |
-| PPO from scratch | 72% | 2% | 11.0 s | 7.2 m | 22.7 |
+| Policy | Success | Collision | Time to goal | Closest to pedestrian | Top speed | Return |
+|---|---|---|---|---|---|---|
+| Aggressive expert | 66% | 34% | 7.3 s | 2.9 m | 45 km/h | 2.0 |
+| Timid expert | 98% | 1% | 14.1 s | 7.4 m | 34 km/h | 36.2 |
+| CoIL, aggressive branch | 66% | 34% | 7.3 s | 2.9 m | 44 km/h | 2.0 |
+| CoIL, timid branch | 98% | 1% | 14.0 s | 7.4 m | 35 km/h | 36.5 |
+| **PPO from CoIL (timid)** | **97% ± 1%** | 3% ± 1% | **10.8 ± 0.1 s** | 5.1 ± 0.1 m | 45 ± 2 km/h | **46.6 ± 2.1** |
+| PPO from scratch | 86% ± 9% | 14% ± 8% | 8.6 ± 2.7 s | 3.4 ± 0.7 m | 63 ± 16 km/h | 22.7 ± 16.1 |
 
-<p align="center"><img src="results/learning_curves.png" alt="PPO learning curves" width="100%"></p>
+<p align="center"><img src="results/learning_curves.png" alt="PPO learning curves over 3 seeds" width="100%"></p>
 
 * **Imitation works**: each CoIL branch reproduces its expert almost exactly.
-* **PPO from CoIL** keeps the timid driver's success rate while reaching the goal about
-  **20% faster** (14.0 s to 11.1 s), and has the highest return of all policies.
-* **PPO from scratch** learns to avoid the pedestrian but often stops and times out
-  (26% of episodes); starting from imitation avoids this and is safe from the first step.
-* Caveats: 200k training steps and one seed per method; 4% vs 2% collisions is 2 vs 1
-  episode out of 50. More seeds and episodes are needed before strong claims.
+* **PPO from CoIL** keeps the timid driver's safety (97% success) while reaching the goal
+  **23% faster** (14.1 s to 10.8 s), stays under the speed limit, and has the highest return.
+  All three seeds end up in almost the same place.
+* **PPO from scratch** is far less reliable: results vary strongly between seeds, it crashes
+  more (14%), and two of three seeds learned to speed (64-82 km/h) despite the penalty.
+  Starting from imitation is safe from the first training step.
+* **Scenario fix (v0.3)**: in v0.2 one from-scratch run learned to drive at ~108 km/h so the
+  pedestrian stepped out after the car had passed. The time-based trigger and the speeding
+  penalty remove that loophole; all numbers above are from the fixed scenario.
+* Caveats: one scenario, 200k training steps, 3 seeds. The collision difference between PPO
+  from CoIL (3%) and the timid expert (1%) is small at 100 episodes.
 
 ---
 
@@ -107,15 +115,17 @@ python scripts/collect_expert.py --episodes 100
 python scripts/train_coil.py
 
 # 3. PPO fine-tuning from the CoIL timid branch, and the from-scratch baseline
-python scripts/train_ppo.py --init coil --command timid --name ppo_from_coil
-python scripts/train_ppo.py --init scratch --name ppo_scratch
+for s in 0 1 2; do   # 3 seeds per method
+  python scripts/train_ppo.py --init coil --command timid --seed $s --name ppo_from_coil_s$s
+  python scripts/train_ppo.py --init scratch --seed $s --name ppo_scratch_s$s
+done
 
 # 4. Evaluate everything on the same unseen scenarios, then plot the learning curves
-python scripts/evaluate.py --policies expert:aggressive expert:timid coil:aggressive coil:timid     ppo:checkpoints/ppo_from_coil.pt ppo:checkpoints/ppo_scratch.pt
-python scripts/plot_results.py
+python scripts/evaluate.py --episodes 100 --policies expert:aggressive expert:timid coil:aggressive coil:timid     ppo:checkpoints/ppo_from_coil_s{0,1,2}.pt ppo:checkpoints/ppo_scratch_s{0,1,2}.pt
+python scripts/plot_results.py   # results/learning_curves.png and results/summary.md
 
 # Watch a policy drive (spectator camera follows the car)
-python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil.pt --episodes 5 --render
+python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil_s0.pt --episodes 5 --render
 ```
 
 Each PPO run takes about 5-10 minutes (200k steps) on an RTX 4060 laptop with CARLA headless.
@@ -143,7 +153,7 @@ results/                        # evaluation JSON, learning-curve CSVs and plot
 - [x] Conditional imitation learning on the expert data
 - [x] PPO fine-tuning from the imitation policy, plus a PPO-from-scratch baseline
 - [x] Evaluation: success, collisions, time to goal, closest distance; learning curves
-- [ ] Several seeds per method and more evaluation episodes
+- [x] Several seeds per method and more evaluation episodes
 - [ ] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
 - [ ] Scenarios 2-4, then full steering control and camera input
 

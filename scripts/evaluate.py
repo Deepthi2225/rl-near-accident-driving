@@ -74,7 +74,7 @@ def main():
     try:
         for spec in args.policies:
             policy = make_policy(spec, args.coil)
-            outcomes, times, dists, returns = Counter(), [], [], []
+            outcomes, times, dists, returns, vmax = Counter(), [], [], [], []
             for i in range(args.episodes):
                 for attempt in range(MAX_RETRIES):
                     try:
@@ -93,6 +93,7 @@ def main():
                 outcomes[info["outcome"]] += 1
                 dists.append(info["min_dist_to_ped"])
                 returns.append(ret)
+                vmax.append(info["max_speed"])
                 if info["outcome"] == "success":
                     times.append(info["time"])
             n = args.episodes
@@ -105,11 +106,13 @@ def main():
                 "mean_time_to_goal": float(np.mean(times)) if times else None,
                 "mean_min_dist_to_ped": float(np.mean(dists)),
                 "mean_return": float(np.mean(returns)),
+                "mean_max_speed_kmh": 3.6 * float(np.mean(vmax)),
             }
             r = results[spec]
             print(f"{spec:18s} success {r['success']:6.1%}  collision {r['collision']:6.1%}  "
                   f"timeout {r['timeout']:5.1%}  time {r['mean_time_to_goal'] or float('nan'):5.1f}s  "
-                  f"min dist {r['mean_min_dist_to_ped']:4.1f}m  return {r['mean_return']:6.1f}", flush=True)
+                  f"min dist {r['mean_min_dist_to_ped']:4.1f}m  return {r['mean_return']:6.1f}  "
+                  f"top speed {r['mean_max_speed_kmh']:5.1f} km/h", flush=True)
     finally:
         try:
             env.close()
