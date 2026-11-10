@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+carla-venv/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated data, models, logs (large; share via releases if needed)
+data/
+checkpoints/
+runs/
+logs/
+*.npy
+*.npz
+*.pth
+*.pt
+*.h5
+
+# CARLA itself is never committed (tens of GB) - set CARLA_ROOT instead
+CARLA_*/
+*.zip

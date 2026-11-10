@@ -1,0 +1,6 @@
+# Python 3.10, CARLA server 0.9.15 (installed separately)
+carla==0.9.15
+gymnasium>=0.29
+numpy
+torch
+matplotlib
