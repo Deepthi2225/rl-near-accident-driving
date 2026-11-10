@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/whew-logo.svg" alt="WHEW! - reinforcement learning for near-accident driving" width="600">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/whew-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/whew-logo-light.svg">
+    <img src="assets/whew-logo-light.svg" alt="WHEW! - reinforcement learning for near-accident driving" width="600">
+  </picture>
 </p>
 
 <p align="center"><i>Bold when it can be. Careful when it must be.</i></p>

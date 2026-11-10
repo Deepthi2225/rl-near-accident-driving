@@ -7,13 +7,6 @@
     .glow   { fill: #e8452c; opacity: .18; }
     .speed  { stroke: #e8452c; opacity: .55; }
     .tag    { fill: #57606a; }
-    @media (prefers-color-scheme: dark) {
-      .ink { stroke: #f0f3f6; }
-      .accent { stroke: #ff5a3c; }
-      .dot, .glow { fill: #ff5a3c; }
-      .speed { stroke: #ff5a3c; }
-      .tag { fill: #9da7b3; }
-    }
   </style>
   <defs>
     <clipPath id="cap"><rect x="-80" y="0" width="560" height="100"/></clipPath>
