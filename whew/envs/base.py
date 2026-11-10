@@ -15,6 +15,7 @@ per second for each m/s above the speed limit, -150 for a collision, +20 at the 
 -50 for leaving the road.
 """
 import math
+import time
 from collections import deque
 
 import carla
@@ -183,6 +184,11 @@ class CarlaScenarioEnv(gym.Env):
             throttle=max(a, 0.0), brake=max(-a, 0.0), steer=self._steer_actor(self.ego, s_ego)))
         self._before_tick(s_ego)
 
+        if self.render_mode == "human":  # play back in real time so it can be watched
+            wait = self.dt - (time.perf_counter() - getattr(self, "_last_wall", 0.0))
+            if wait > 0:
+                time.sleep(wait)
+            self._last_wall = time.perf_counter()
         self.world.tick()
         self.t += self.dt
 
