@@ -15,8 +15,8 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: early development (v0.1). The first scenario and the expert drivers are working;
-> imitation learning and PPO training are next.
+> Status: v0.2. Scenario 1 works end to end: expert data, conditional imitation learning,
+> PPO fine-tuning and a PPO-from-scratch baseline. More scenarios are next.
 
 ## Approach
 
@@ -44,7 +44,34 @@ The pedestrian can only be observed once they leave the blind spot.
   controller keeps the car in its lane.
 * **Observation** (7 values): ego speed, distance to goal, distance to the parked car,
   pedestrian visible flag, pedestrian longitudinal / lateral position and lateral speed.
-* **Reward**: metres of progress, -150 for a collision, +20 for reaching the goal.
+* **Reward**: +1 per metre of progress, -4 per second of driving, -150 for a collision,
+  +20 for reaching the goal. Being fast pays, but never at the cost of a crash.
+
+## Results (scenario 1: pedestrian dart-out)
+
+50 unseen scenarios per policy (same scenario seeds for every policy, disjoint from the
+training data). PPO policies use their mean action.
+
+| Policy | Success | Collision | Time to goal | Closest to pedestrian | Return |
+|---|---|---|---|---|---|
+| Aggressive expert | 72% | 28% | 7.5 s | 3.2 m | 12.9 |
+| Timid expert | 96% | 2% | 14.0 s | 8.0 m | 34.2 |
+| CoIL, aggressive branch | 72% | 28% | 7.4 s | 3.1 m | 13.1 |
+| CoIL, timid branch | 96% | 2% | 13.9 s | 8.0 m | 34.5 |
+| **PPO from CoIL (timid)** | **96%** | 4% | **11.1 s** | 5.8 m | **42.8** |
+| PPO from scratch | 72% | 2% | 11.0 s | 7.2 m | 22.7 |
+
+<p align="center"><img src="results/learning_curves.png" alt="PPO learning curves" width="100%"></p>
+
+* **Imitation works**: each CoIL branch reproduces its expert almost exactly.
+* **PPO from CoIL** keeps the timid driver's success rate while reaching the goal about
+  **20% faster** (14.0 s to 11.1 s), and has the highest return of all policies.
+* **PPO from scratch** learns to avoid the pedestrian but often stops and times out
+  (26% of episodes); starting from imitation avoids this and is safe from the first step.
+* Caveats: 200k training steps and one seed per method; 4% vs 2% collisions is 2 vs 1
+  episode out of 50. More seeds and episodes are needed before strong claims.
+
+---
 
 ## Setup
 
@@ -73,12 +100,25 @@ Requirements: Windows or Linux, Python 3.10, an NVIDIA GPU (tested on an RTX 406
 # Watch the two experts drive (spectator camera follows the car)
 python scripts/collect_expert.py --episodes 3 --render --no-save
 
-# Collect demonstrations: 100 episodes per expert -> data/pedestrian_crossing_expert.npz
+# 1. Collect demonstrations: 100 episodes per expert -> data/pedestrian_crossing_expert.npz
 python scripts/collect_expert.py --episodes 100
+
+# 2. Train conditional imitation learning -> checkpoints/coil.pt
+python scripts/train_coil.py
+
+# 3. PPO fine-tuning from the CoIL timid branch, and the from-scratch baseline
+python scripts/train_ppo.py --init coil --command timid --name ppo_from_coil
+python scripts/train_ppo.py --init scratch --name ppo_scratch
+
+# 4. Evaluate everything on the same unseen scenarios, then plot the learning curves
+python scripts/evaluate.py --policies expert:aggressive expert:timid coil:aggressive coil:timid     ppo:checkpoints/ppo_from_coil.pt ppo:checkpoints/ppo_scratch.pt
+python scripts/plot_results.py
+
+# Watch a policy drive (spectator camera follows the car)
+python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil.pt --episodes 5 --render
 ```
 
-The script prints each expert's success rate, collision rate, time to goal and closest
-distance to the pedestrian.
+Each PPO run takes about 5-10 minutes (200k steps) on an RTX 4060 laptop with CARLA headless.
 
 ## Project structure
 
@@ -86,16 +126,25 @@ distance to the pedestrian.
 whew/
   envs/pedestrian_crossing.py   # Scenario 1 as a gymnasium environment
   experts.py                    # aggressive and timid rule-based drivers
+  coil.py                       # conditional imitation learning network (one branch per style)
+  ppo.py                        # PPO (GAE, Gaussian policy) with a CoIL-shaped actor
 scripts/
   collect_expert.py             # expert data collection + expert evaluation
+  train_coil.py                 # imitation learning
+  train_ppo.py                  # PPO fine-tuning / from-scratch baseline
+  evaluate.py                   # compare policies on the same unseen scenarios
+  plot_results.py               # learning curves
+results/                        # evaluation JSON, learning-curve CSVs and plot
 ```
 
 ## Roadmap
 
 - [x] Scenario 1 environment and expert drivers
-- [ ] Conditional imitation learning on the expert data
-- [ ] PPO fine-tuning from the imitation policy, plus a PPO-from-scratch baseline
-- [ ] Evaluation: success, collisions, time to goal, closest distance; learning curves over several seeds
+- [x] Conditional imitation learning on the expert data
+- [x] PPO fine-tuning from the imitation policy, plus a PPO-from-scratch baseline
+- [x] Evaluation: success, collisions, time to goal, closest distance; learning curves
+- [ ] Several seeds per method and more evaluation episodes
+- [ ] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
 - [ ] Scenarios 2-4, then full steering control and camera input
 
 ## Background and credits

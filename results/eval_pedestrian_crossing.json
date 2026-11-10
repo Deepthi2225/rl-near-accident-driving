@@ -1,0 +1,62 @@
+{
+  "expert:aggressive": {
+    "episodes": 50,
+    "success": 0.72,
+    "collision": 0.28,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.465277777777765,
+    "mean_min_dist_to_ped": 3.172865927219391,
+    "mean_return": 12.870213715296666
+  },
+  "expert:timid": {
+    "episodes": 50,
+    "success": 0.96,
+    "collision": 0.02,
+    "timeout": 0.02,
+    "off_road": 0.0,
+    "mean_time_to_goal": 13.981250000000065,
+    "mean_min_dist_to_ped": 7.961372385025024,
+    "mean_return": 34.19084870832453
+  },
+  "coil:aggressive": {
+    "episodes": 50,
+    "success": 0.72,
+    "collision": 0.28,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 7.381944444444432,
+    "mean_min_dist_to_ped": 3.1244598031044006,
+    "mean_return": 13.129467447202247
+  },
+  "coil:timid": {
+    "episodes": 50,
+    "success": 0.96,
+    "collision": 0.02,
+    "timeout": 0.02,
+    "off_road": 0.0,
+    "mean_time_to_goal": 13.948958333333394,
+    "mean_min_dist_to_ped": 7.987798614501953,
+    "mean_return": 34.453962254508696
+  },
+  "ppo:checkpoints/ppo_from_coil.pt": {
+    "episodes": 50,
+    "success": 0.96,
+    "collision": 0.04,
+    "timeout": 0.0,
+    "off_road": 0.0,
+    "mean_time_to_goal": 11.147916666666688,
+    "mean_min_dist_to_ped": 5.752140021324157,
+    "mean_return": 42.808370999296514
+  },
+  "ppo:checkpoints/ppo_scratch.pt": {
+    "episodes": 50,
+    "success": 0.72,
+    "collision": 0.02,
+    "timeout": 0.26,
+    "off_road": 0.0,
+    "mean_time_to_goal": 11.00138888888891,
+    "mean_min_dist_to_ped": 7.211272993087769,
+    "mean_return": 22.743511019748425
+  }
+}

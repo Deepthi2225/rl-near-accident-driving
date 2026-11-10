@@ -36,10 +36,11 @@ class PedestrianCrossingEnv(gym.Env):
 
     def __init__(self, host="localhost", port=2000, town=None, dt=0.05, max_time=20.0,
                  route_length=80.0, cross_prob=0.8, render_mode=None, no_rendering=False,
-                 timeout=30.0):
+                 timeout=30.0, time_penalty=4.0):
         super().__init__()
         self.dt, self.max_time, self.route_length = dt, max_time, route_length
         self.cross_prob, self.render_mode = cross_prob, render_mode
+        self.time_penalty = time_penalty  # reward lost per second of driving
 
         self.client = carla.Client(host, port)
         self.client.set_timeout(timeout)
@@ -217,7 +218,7 @@ class PedestrianCrossingEnv(gym.Env):
         s_ego, l_ego = self._frame(ego_loc)
         self.min_dist = min(self.min_dist, ego_loc.distance(self.walker.get_location()))
 
-        reward = (s_ego - self.s_prev) - 0.02
+        reward = (s_ego - self.s_prev) - self.time_penalty * self.dt
         self.s_prev = s_ego
         outcome = None
         if self.collision is not None:
