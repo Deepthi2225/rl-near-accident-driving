@@ -31,7 +31,7 @@ def main():
     p.add_argument("--init", choices=["coil", "scratch"], default="coil")
     p.add_argument("--command", choices=list(COMMANDS), default="timid",
                    help="CoIL branch to fine-tune (also the branch used from scratch)")
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--coil", default=None, help="also provides observation normalisation")
     p.add_argument("--steps", type=int, default=150_000)
     p.add_argument("--rollout", type=int, default=2048)
@@ -57,7 +57,7 @@ def main():
     warmup = args.critic_warmup if args.init == "coil" else 0
     ppo = PPO(model, lr_actor=1e-4 if args.init == "coil" else 3e-4)
 
-    make_env = lambda: sc["env"](town=args.town, no_rendering=True)  # noqa: E731
+    make_env = lambda: sc["env"](town=args.town or SCENARIOS[args.scenario]["town"], no_rendering=True)  # noqa: E731
     holder = {"env": make_env()}
 
     def reconnect(err):

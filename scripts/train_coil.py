@@ -22,7 +22,7 @@ from whew.scenarios import SCENARIOS  # noqa: E402
 
 def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--data", default=None, help="default: the scenario's data file")
     p.add_argument("--out", default=None, help="default: the scenario's CoIL checkpoint")
     p.add_argument("--epochs", type=int, default=60)

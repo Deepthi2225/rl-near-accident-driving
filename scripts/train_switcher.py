@@ -28,7 +28,7 @@ from whew.ppo import PPO, RolloutBuffer, SwitchActorCritic  # noqa: E402
 
 def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--coil", default=None)
     p.add_argument("--steps", type=int, default=100_000, help="simulation steps")
     p.add_argument("--interval", type=int, default=5, help="simulation steps per mode decision")
@@ -48,7 +48,7 @@ def main():
     model = SwitchActorCritic(obs_dim=len(coil.obs_mean), n_modes=coil.net.n_commands)
     ppo = PPO(model, lr_actor=3e-4, lr_critic=1e-3, gamma=0.99 ** args.interval, entropy_coef=0.01)
 
-    make_env = lambda: sc["env"](town=args.town, no_rendering=True)  # noqa: E731
+    make_env = lambda: sc["env"](town=args.town or SCENARIOS[args.scenario]["town"], no_rendering=True)  # noqa: E731
     holder = {"env": make_env()}
 
     def reconnect(err):

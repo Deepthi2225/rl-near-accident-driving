@@ -15,7 +15,7 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: v0.5. Scenarios 1 (pedestrian dart-out) and 2 (sudden cut-in) work end to end:
+> Status: v0.6. Scenarios 1 (pedestrian dart-out), 2 (sudden cut-in) and 3 (red-light runner) work end to end:
 > expert data, conditional imitation learning, PPO fine-tuning, a high-level mode switcher
 > (H-ReIL style) and a PPO-from-scratch baseline, evaluated over 3 seeds each.
 
@@ -35,7 +35,7 @@ crashes. The goal is a policy that is bold when it can be and careful when it mu
 |---|----------|--------|
 | 1 | **Pedestrian dart-out**: a pedestrian steps into the road from behind a parked car | Working |
 | 2 | **Sudden cut-in**: a faster car swerves into the ego lane close ahead and often brakes hard | Working |
-| 3 | Red-light runner at an intersection | Planned |
+| 3 | **Red-light runner**: a hidden car runs its red light and crosses the ego car's path at an intersection | Working |
 | 4 | Unprotected left turn with a fast oncoming car | Planned |
 
 ### Scenario 1: pedestrian dart-out
@@ -63,6 +63,18 @@ then brakes hard (70-100% brake, down to 0-3 m/s for 1-2 s) before driving on.
 * **Action / reward**: the same as scenario 1.
 * **Observation** (7 values): ego speed, distance to goal, bumper gap to the other car, its
   lateral offset, relative speed and lateral speed, and an in-my-lane flag.
+
+### Scenario 3: red-light runner
+The ego car drives straight through a four-way intersection on green (CARLA's Town05, which
+has 12 suitable intersections). In 80% of episodes a car on the crossing road runs its red
+light and drives straight across. Buildings hide it until it is 15-25 m from the crossing
+point. While hidden it adapts its speed to arrive at about the same moment as the ego car,
+so speeding up or slowing down far from the intersection cannot dodge it.
+
+* **Reaction delay**: 0.3 s, as in scenario 2.
+* **Action / reward**: the same as scenario 1.
+* **Observation** (7 values): ego speed, distance to goal, distance to the crossing point, a
+  crossing-car visible flag, and its distance to the crossing point, speed and arrival time.
 
 ## Results
 
@@ -132,6 +144,34 @@ Same protocol (100 unseen scenarios, 3 training seeds per RL method, mean ± std
   would move the RL policies towards the timid end.
 * **PPO from scratch** is again the least reliable: one seed is good, one has a negative return.
 
+### Scenario 3: red-light runner
+
+Same protocol (100 unseen scenarios, 3 training seeds per RL method, mean ± std over seeds).
+
+| Policy | Success | Collision | Time to goal | Closest distance | Top speed | Return |
+|---|---|---|---|---|---|---|
+| Aggressive expert | 55% | 45% | 6.9 s | 13.4 m | 51 km/h | -17.4 |
+| Timid expert | 100% | 0% | 12.4 s | 19.9 m | 42 km/h | 45.4 |
+| CoIL, aggressive branch | 55% | 45% | 6.9 s | 13.3 m | 52 km/h | -17.5 |
+| CoIL, timid branch | 100% | 0% | 12.4 s | 20.1 m | 42 km/h | 45.4 |
+| PPO from CoIL (timid) | 97% ± 1% | 3% ± 1% | 11.2 ± 0.3 s | 18.9 ± 0.1 m | 47 ± 2 km/h | 44.6 ± 3.3 |
+| **PPO mode switcher (H-ReIL)** | **99% ± 2%** | 1% ± 2% | **9.9 ± 0.4 s** | 15.4 ± 0.7 m | 50 ± 1 km/h | **52.5 ± 4.1** |
+| PPO from scratch | 91% ± 7% | 3% ± 2% | 8.8 ± 0.4 s | 16.7 ± 0.7 m | 63 ± 6 km/h | 41.4 ± 7.2 |
+
+<p align="center"><img src="results/red_light/learning_curves.png" alt="Scenario 3 learning curves over 3 seeds" width="100%"></p>
+
+* **The mode switcher is best again**: 20% faster than the timid driver (12.4 s to 9.9 s) with
+  almost no crashes, where the aggressive driver crashes 45% of the time. Two of its three
+  seeds had no collisions in 100 episodes; the third had 4. It uses the aggressive branch
+  38-59% of the time.
+* **PPO from CoIL** gains less time here (12.4 s to 11.2 s) and adds 3% collisions, so it does
+  not beat the timid driver on return.
+* **PPO from scratch** is the fastest learned policy, but it exceeds the 50 km/h limit (58-71 km/h)
+  and one seed times out in 19% of episodes. Its time to goal counts only successful episodes.
+* Caveats: the 0% to 5% collision differences are only a few episodes out of 100 per seed, so
+  they are not precise. During training the switcher still crashed about 5% of the time with
+  exploration on; the table is for deterministic evaluation.
+
 ---
 
 ## Setup
@@ -184,8 +224,9 @@ python scripts/plot_results.py   # results/learning_curves.png and results/summa
 python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil_s0.pt --episodes 5 --render
 ```
 
-Every script takes `--scenario pedestrian` (default) or `--scenario cut_in`. Scenario 2 files
-go to `data/cut_in_expert.npz`, `checkpoints/cut_in/` and `results/cut_in/`, e.g.
+Every script takes `--scenario pedestrian` (default), `--scenario cut_in` or `--scenario red_light`,
+and loads that scenario's map automatically (Town10HD_Opt for 1 and 2, Town05 for 3). Files for
+scenarios 2 and 3 go to `data/<scenario>_expert.npz`, `checkpoints/<scenario>/` and `results/<scenario>/`, e.g.
 
 ```bash
 python scripts/collect_expert.py --scenario cut_in --episodes 100
@@ -203,6 +244,7 @@ whew/
   envs/base.py                  # shared CARLA plumbing: routes, actors, reward, reaction delay
   envs/pedestrian_crossing.py   # Scenario 1 as a gymnasium environment
   envs/cut_in.py                # Scenario 2 as a gymnasium environment
+  envs/red_light.py             # Scenario 3 as a gymnasium environment
   scenarios.py                  # scenario registry: env, expert, data / checkpoint / result paths
   experts.py                    # aggressive and timid rule-based drivers for each scenario
   coil.py                       # conditional imitation learning network (one branch per style)
@@ -214,7 +256,7 @@ scripts/
   train_switcher.py             # high-level mode switcher (H-ReIL style)
   evaluate.py                   # compare policies on the same unseen scenarios
   plot_results.py               # learning curves
-results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/ for scenario 2)
+results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/ and red_light/ for scenarios 2 and 3)
 ```
 
 ## Roadmap
@@ -227,7 +269,8 @@ results/                        # evaluation JSON, learning-curve CSVs and plot 
 - [x] High-level PPO that switches between the aggressive and timid CoIL branches (as in H-ReIL)
 - [x] Scenario 2: sudden cut-in, with a 0.3 s reaction delay
 - [ ] Make the switcher more stable in scenario 1 (e.g. memory of recent observations, more modes)
-- [ ] Scenarios 3-4, then full steering control and camera input
+- [x] Scenario 3: red-light runner at an intersection
+- [ ] Scenario 4, then full steering control and camera input
 
 ## Background and credits
 

@@ -23,7 +23,7 @@ MAX_RETRIES = 5
 
 
 def make_env(args):
-    env = SCENARIOS[args.scenario]["env"](town=args.town, render_mode="human" if args.render else None,
+    env = SCENARIOS[args.scenario]["env"](town=args.town or SCENARIOS[args.scenario]["town"], render_mode="human" if args.render else None,
                                  no_rendering=not args.render)
     env.expert_fn = SCENARIOS[args.scenario]["expert"]
     return env
@@ -53,7 +53,7 @@ def main():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("--episodes", type=int, default=100, help="episodes per expert")
     p.add_argument("--town", type=str, default=None, help="e.g. Town04 (default: currently loaded map)")
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--out", type=str, default=None, help="default: the scenario's data file")
     p.add_argument("--render", action="store_true", help="spectator camera follows the ego car")
     p.add_argument("--no-save", action="store_true")

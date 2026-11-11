@@ -69,3 +69,26 @@ def expert_action_cut_in(obs, command, lane_width=3.5):
         target = min(cruise, max(0.0, v + rel_v + 0.5 * (gap - headway * v)))
 
     return float(np.clip(0.5 * (target - v), -1.0, 1.0))
+
+
+# --------------------------------------------------------------------------- red-light runner
+#            cruise  intersection speed  time margin (s)  only react within (s of the crossing)
+_RED_LIGHT_STYLE = {
+    AGGRESSIVE: (13.0,   13.0,               0.0,             0.8),
+    TIMID:      (10.0,    7.0,               1.2,             99.0),
+}
+
+
+def expert_action_red_light(obs, command, lane_width=3.5):
+    """Rule-based driver for the red-light runner scenario. Returns a in [-1, 1]."""
+    v, _, d_conf, visible, r_dist, _, r_tta = [float(x) for x in obs]
+    cruise, junction_speed, margin, react_within = _RED_LIGHT_STYLE[command]
+    target = junction_speed if 0.0 < d_conf < 30.0 else cruise
+
+    # brake if the runner would arrive before we have cleared the crossing; hold until it has passed
+    if visible > 0.5 and d_conf > 1.0 and r_dist > -4.0:
+        t_clear = (d_conf + 6.0) / max(v, 0.5)
+        if t_clear + margin > r_tta - 0.4 and d_conf / max(v, 3.0) < react_within:
+            return -1.0
+
+    return float(np.clip(0.5 * (target - v), -1.0, 1.0))

@@ -1,11 +1,12 @@
 """Scenario registry: environment class, expert driver and default file locations."""
-from .envs import CutInEnv, PedestrianCrossingEnv
-from .experts import expert_action, expert_action_cut_in
+from .envs import CutInEnv, PedestrianCrossingEnv, RedLightRunnerEnv
+from .experts import expert_action, expert_action_cut_in, expert_action_red_light
 
 SCENARIOS = {
     # Scenario 1 keeps its original file names (results from v0.1-v0.4).
     "pedestrian": {
         "env": PedestrianCrossingEnv,
+        "town": "Town10HD_Opt",
         "expert": expert_action,
         "data": "data/pedestrian_crossing_expert.npz",
         "coil": "checkpoints/coil.pt",
@@ -16,6 +17,7 @@ SCENARIOS = {
     },
     "cut_in": {
         "env": CutInEnv,
+        "town": "Town10HD_Opt",
         "expert": expert_action_cut_in,
         "data": "data/cut_in_expert.npz",
         "coil": "checkpoints/cut_in/coil.pt",
@@ -23,5 +25,16 @@ SCENARIOS = {
         "results": "results/cut_in",
         "eval": "results/cut_in/eval.json",
         "title": "sudden cut-in",
+    },
+    "red_light": {
+        "env": RedLightRunnerEnv,
+        "town": "Town05",
+        "expert": expert_action_red_light,
+        "data": "data/red_light_expert.npz",
+        "coil": "checkpoints/red_light/coil.pt",
+        "checkpoints": "checkpoints/red_light",
+        "results": "results/red_light",
+        "eval": "results/red_light/eval.json",
+        "title": "red-light runner",
     },
 }

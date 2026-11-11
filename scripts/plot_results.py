@@ -110,7 +110,7 @@ def summary_table(evals, out):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--eval", default=None, help="default: the scenario's evaluation file")
     args = p.parse_args()
     sc = SCENARIOS[args.scenario]

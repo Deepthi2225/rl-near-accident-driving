@@ -90,7 +90,7 @@ def main():
     p.add_argument("--policies", nargs="+", default=["expert:aggressive", "expert:timid",
                                                      "coil:aggressive", "coil:timid"])
     p.add_argument("--episodes", type=int, default=50)
-    p.add_argument("--scenario", choices=["pedestrian", "cut_in"], default="pedestrian")
+    p.add_argument("--scenario", choices=list(SCENARIOS), default="pedestrian")
     p.add_argument("--coil", default=None, help="default: the scenario's CoIL checkpoint")
     p.add_argument("--town", default=None)
     p.add_argument("--render", action="store_true")
@@ -100,7 +100,7 @@ def main():
     args.coil, args.out = args.coil or sc["coil"], args.out or sc["eval"]
 
     make_env = lambda: sc["env"](  # noqa: E731
-        town=args.town, render_mode="human" if args.render else None, no_rendering=not args.render)
+        town=args.town or SCENARIOS[args.scenario]["town"], render_mode="human" if args.render else None, no_rendering=not args.render)
     env = make_env()
     results = {}
     try:

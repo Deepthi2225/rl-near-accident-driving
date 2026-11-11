@@ -58,7 +58,7 @@ class CarlaScenarioEnv(gym.Env):
         self.ego_bp.set_attribute("role_name", "hero")
         self.collision_bp = self.blueprints.find("sensor.other.collision")
 
-        self.routes = self._find_straight_routes()
+        self.routes = self._find_routes()
         if not self.routes:
             raise RuntimeError(f"No suitable straight {route_length:.0f} m route found in {self.map.name}; "
                                "try town='Town04' or a shorter route_length.")
@@ -68,6 +68,9 @@ class CarlaScenarioEnv(gym.Env):
         self._actors = []
 
     # ------------------------------------------------------------------ routes / geometry
+    def _find_routes(self):
+        return self._find_straight_routes()
+
     def _find_straight_routes(self, step=2.0):
         """Straight, junction-free routes in the right-most driving lane."""
         n = int(self.route_length / step)
