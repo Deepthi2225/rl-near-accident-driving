@@ -79,11 +79,11 @@ _RED_LIGHT_STYLE = {
 }
 
 
-def expert_action_red_light(obs, command, lane_width=3.5):
+def expert_action_red_light(obs, command, lane_width=3.5, styles=_RED_LIGHT_STYLE, slow_zone=(0.0, 30.0)):
     """Rule-based driver for the red-light runner scenario. Returns a in [-1, 1]."""
     v, _, d_conf, visible, r_dist, _, r_tta = [float(x) for x in obs]
-    cruise, junction_speed, margin, react_within = _RED_LIGHT_STYLE[command]
-    target = junction_speed if 0.0 < d_conf < 30.0 else cruise
+    cruise, junction_speed, margin, react_within = styles[command]
+    target = junction_speed if slow_zone[0] < d_conf < slow_zone[1] else cruise
 
     # brake if the runner would arrive before we have cleared the crossing; hold until it has passed
     if visible > 0.5 and d_conf > 1.0 and r_dist > -4.0:
@@ -92,3 +92,16 @@ def expert_action_red_light(obs, command, lane_width=3.5):
             return -1.0
 
     return float(np.clip(0.5 * (target - v), -1.0, 1.0))
+
+
+# --------------------------------------------------------------------------- unprotected left turn
+#            cruise  turning speed  time margin (s)  only react within (s of the crossing)
+_LEFT_TURN_STYLE = {
+    AGGRESSIVE: (13.0,   9.0,           0.0,             0.8),
+    TIMID:      (10.0,   6.0,           1.5,             99.0),
+}
+
+
+def expert_action_left_turn(obs, command, lane_width=3.5):
+    """Same gap-judging rule as the red-light driver, with a speed limit for the curve."""
+    return expert_action_red_light(obs, command, lane_width, _LEFT_TURN_STYLE, (-14.0, 25.0))

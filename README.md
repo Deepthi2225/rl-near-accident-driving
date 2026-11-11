@@ -15,9 +15,9 @@ It learns how to drive through the seconds before a potential crash, where a
 purely cautious driver is safe but slow and a purely aggressive driver is fast but
 crashes. The goal is a policy that is bold when it can be and careful when it must be.
 
-> Status: v0.6. Scenarios 1 (pedestrian dart-out), 2 (sudden cut-in) and 3 (red-light runner) work end to end:
-> expert data, conditional imitation learning, PPO fine-tuning, a high-level mode switcher
-> (H-ReIL style) and a PPO-from-scratch baseline, evaluated over 3 seeds each.
+> Status: v0.7. All four scenarios work end to end: expert data, conditional imitation
+> learning, PPO fine-tuning, a high-level mode switcher (H-ReIL style) and a PPO-from-scratch
+> baseline, evaluated over 3 seeds each.
 
 ## Approach
 
@@ -36,7 +36,7 @@ crashes. The goal is a policy that is bold when it can be and careful when it mu
 | 1 | **Pedestrian dart-out**: a pedestrian steps into the road from behind a parked car | Working |
 | 2 | **Sudden cut-in**: a faster car swerves into the ego lane close ahead and often brakes hard | Working |
 | 3 | **Red-light runner**: a hidden car runs its red light and crosses the ego car's path at an intersection | Working |
-| 4 | Unprotected left turn with a fast oncoming car | Planned |
+| 4 | **Unprotected left turn**: turning left across the path of a fast oncoming car | Working |
 
 ### Scenario 1: pedestrian dart-out
 The ego car drives down a straight road. A parked car hides a pedestrian, who steps
@@ -75,6 +75,19 @@ so speeding up or slowing down far from the intersection cannot dodge it.
 * **Action / reward**: the same as scenario 1.
 * **Observation** (7 values): ego speed, distance to goal, distance to the crossing point, a
   crossing-car visible flag, and its distance to the crossing point, speed and arrival time.
+
+### Scenario 4: unprotected left turn
+The ego car turns left at a four-way intersection in Town05 on green, with no turn arrow. In
+85% of episodes a fast oncoming car (40-58 km/h) comes straight through, appearing 32-44 m
+before the junction around the time the ego car arrives. The driver has to judge the gap:
+go first, or wait for it to pass.
+
+* **Steering** follows the curve of the turn automatically; the agent still controls only
+  throttle and brake, with the 0.3 s reaction delay.
+* **Cornering limit**: CARLA's tyres grip far better than real ones, and a first version let a
+  policy take the turn at 50 km/h (2.3 g sideways). Sideways acceleration above 4 m/s^2 is now
+  penalised, and above 11 m/s^2 counts as losing control (scored like leaving the road).
+* **Observation**: the same layout as scenario 3, for the oncoming car.
 
 ## Results
 
@@ -172,6 +185,50 @@ Same protocol (100 unseen scenarios, 3 training seeds per RL method, mean ± std
   they are not precise. During training the switcher still crashed about 5% of the time with
   exploration on; the table is for deterministic evaluation.
 
+### Scenario 4: unprotected left turn
+
+Same protocol (100 unseen scenarios, 3 training seeds per RL method, mean ± std over seeds).
+
+| Policy | Success | Collision | Time to goal | Closest distance | Top speed | Return |
+|---|---|---|---|---|---|---|
+| Aggressive expert | 65% | 35% | 8.7 s | 13.6 m | 51 km/h | -7.7 |
+| Timid expert | 100% | 0% | 17.2 s | 11.6 m | 42 km/h | 28.3 |
+| CoIL, aggressive branch | 62% | 38% | 8.8 s | 13.3 m | 51 km/h | -12.2 |
+| CoIL, timid branch | 100% | 0% | 17.2 s | 11.7 m | 42 km/h | 28.1 |
+| **PPO from CoIL (timid)** | **100% ± 0%** | **0% ± 0%** | 13.4 ± 0.2 s | 11.5 ± 0.0 m | 45 ± 1 km/h | 40.6 ± 0.8 |
+| PPO mode switcher (H-ReIL) | 89% ± 6% | 11% ± 6% | 11.3 ± 1.4 s | 14.0 ± 0.5 m | 49 ± 2 km/h | 28.6 ± 5.6 |
+| PPO from scratch | 95% ± 0% | 2% ± 2% | **7.4 ± 0.2 s** | 16.6 ± 0.6 m | 59 ± 2 km/h | **46.2 ± 2.9** |
+
+<p align="center"><img src="results/left_turn/learning_curves.png" alt="Scenario 4 learning curves over 3 seeds" width="100%"></p>
+
+* **PPO from CoIL** is the only policy that never failed (300 of 300 episodes): 22% faster than
+  the timid driver (17.2 s to 13.4 s), and all three seeds agree.
+* **PPO from scratch** has the highest return. It turns no harder than the aggressive driver
+  (both peak at about 7.5 m/s^2 sideways), but speeds up to 59 km/h on the straights, accepting
+  the speeding penalty, and loses control of the car in 3% of episodes.
+* **The mode switcher** is the weakest RL method here (11% collisions; one seed reaches 97%).
+  Neither fixed driving style handles the turn well: the aggressive branch hits the oncoming
+  car and the timid one waits too long, and switching between them every 0.25 s does not fix
+  that.
+
+### Across all four scenarios
+
+Mean return and success rate over 3 seeds (higher is better):
+
+| Scenario | Timid expert | PPO from CoIL | Mode switcher | PPO from scratch |
+|---|---|---|---|---|
+| 1. Pedestrian dart-out | 36.2 (98%) | **46.6** (97%) | 33.0 (90%) | 22.7 (86%) |
+| 2. Sudden cut-in | 47.8 (98%) | 49.1 (95%) | **54.1** (95%) | 24.6 (86%) |
+| 3. Red-light runner | 45.4 (100%) | 44.6 (97%) | **52.5** (99%) | 41.4 (91%) |
+| 4. Unprotected left turn | 28.3 (100%) | 40.6 (100%) | 28.6 (89%) | **46.2** (95%) |
+
+* No method wins everywhere. **PPO from CoIL** is the most dependable: it never drops below
+  95% success, always beats the timid driver on speed, and its seeds always agree.
+* **The mode switcher** is best when the danger can be seen coming (cut-in, red-light runner)
+  and weakest when it is hidden (pedestrian) or when neither style fits (left turn).
+* **PPO from scratch** is the least reliable overall, and twice found loopholes in the
+  scenario design (scenarios 1 and 4) that had to be closed.
+
 ---
 
 ## Setup
@@ -224,9 +281,9 @@ python scripts/plot_results.py   # results/learning_curves.png and results/summa
 python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil_s0.pt --episodes 5 --render
 ```
 
-Every script takes `--scenario pedestrian` (default), `--scenario cut_in` or `--scenario red_light`,
-and loads that scenario's map automatically (Town10HD_Opt for 1 and 2, Town05 for 3). Files for
-scenarios 2 and 3 go to `data/<scenario>_expert.npz`, `checkpoints/<scenario>/` and `results/<scenario>/`, e.g.
+Every script takes `--scenario pedestrian` (default), `cut_in`, `red_light` or `left_turn`, and
+loads that scenario's map automatically (Town10HD_Opt for 1 and 2, Town05 for 3 and 4). Files for
+scenarios 2-4 go to `data/<scenario>_expert.npz`, `checkpoints/<scenario>/` and `results/<scenario>/`, e.g.
 
 ```bash
 python scripts/collect_expert.py --scenario cut_in --episodes 100
@@ -245,6 +302,7 @@ whew/
   envs/pedestrian_crossing.py   # Scenario 1 as a gymnasium environment
   envs/cut_in.py                # Scenario 2 as a gymnasium environment
   envs/red_light.py             # Scenario 3 as a gymnasium environment
+  envs/left_turn.py             # Scenario 4 as a gymnasium environment (curved route)
   scenarios.py                  # scenario registry: env, expert, data / checkpoint / result paths
   experts.py                    # aggressive and timid rule-based drivers for each scenario
   coil.py                       # conditional imitation learning network (one branch per style)
@@ -256,7 +314,7 @@ scripts/
   train_switcher.py             # high-level mode switcher (H-ReIL style)
   evaluate.py                   # compare policies on the same unseen scenarios
   plot_results.py               # learning curves
-results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/ and red_light/ for scenarios 2 and 3)
+results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/, red_light/, left_turn/ for scenarios 2-4)
 ```
 
 ## Roadmap
@@ -270,7 +328,8 @@ results/                        # evaluation JSON, learning-curve CSVs and plot 
 - [x] Scenario 2: sudden cut-in, with a 0.3 s reaction delay
 - [ ] Make the switcher more stable in scenario 1 (e.g. memory of recent observations, more modes)
 - [x] Scenario 3: red-light runner at an intersection
-- [ ] Scenario 4, then full steering control and camera input
+- [x] Scenario 4: unprotected left turn, with a cornering limit
+- [ ] Full steering control and camera input
 
 ## Background and credits
 

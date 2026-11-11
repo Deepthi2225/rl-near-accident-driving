@@ -27,10 +27,12 @@ from gymnasium import spaces
 class CarlaScenarioEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
     need_left_lane = False  # scenarios with a second same-direction lane on the left set this
+    ego_lookahead = 8.0     # m ahead the ego car's lane keeping aims at
 
     def __init__(self, host="localhost", port=2000, town=None, dt=0.05, max_time=20.0,
                  route_length=80.0, render_mode=None, no_rendering=False, timeout=30.0,
-                 time_penalty=4.0, speed_limit=13.9, speeding_penalty=2.0, action_delay=0):
+                 time_penalty=4.0, speed_limit=13.9, speeding_penalty=2.0, action_delay=0,
+                 lat_acc_limit=None, lat_acc_penalty=0.0, lat_acc_max=None):
         super().__init__()
         self.action_delay = action_delay  # simulation steps between choosing and applying an action
         self.dt, self.max_time, self.route_length = dt, max_time, route_length
@@ -38,6 +40,10 @@ class CarlaScenarioEnv(gym.Env):
         self.time_penalty = time_penalty  # reward lost per second of driving
         self.speed_limit = speed_limit  # m/s (13.9 m/s = 50 km/h, a city speed limit)
         self.speeding_penalty = speeding_penalty  # per (m/s over the limit) per second
+        # Cornering (used by turning scenarios): CARLA's tyres grip far better than real ones, so
+        # penalise sideways acceleration above lat_acc_limit (m/s^2) and treat lat_acc_max as
+        # losing control (ends the episode like leaving the road).
+        self.lat_acc_limit, self.lat_acc_penalty, self.lat_acc_max = lat_acc_limit, lat_acc_penalty, lat_acc_max
 
         self.client = carla.Client(host, port)
         self.client.set_timeout(timeout)
@@ -173,6 +179,7 @@ class CarlaScenarioEnv(gym.Env):
         self.s_prev = self._frame(self.ego.get_location())[0]
         self.min_dist = float("inf")
         self.max_speed = 0.0
+        self.lat_acc = self.max_lat_acc = 0.0
         self._pending = deque([0.0] * self.action_delay)
         self._follow_camera()
 
@@ -184,7 +191,7 @@ class CarlaScenarioEnv(gym.Env):
             a = self._pending.popleft()
         s_ego = self._frame(self.ego.get_location())[0]
         self.ego.apply_control(carla.VehicleControl(
-            throttle=max(a, 0.0), brake=max(-a, 0.0), steer=self._steer_actor(self.ego, s_ego)))
+            throttle=max(a, 0.0), brake=max(-a, 0.0), steer=self._steer_actor(self.ego, s_ego, lookahead=self.ego_lookahead)))
         self._before_tick(s_ego)
 
         if self.render_mode == "human":  # play back in real time so it can be watched
@@ -203,6 +210,12 @@ class CarlaScenarioEnv(gym.Env):
         self.max_speed = max(self.max_speed, speed)
         speeding = max(0.0, speed - self.speed_limit)
         reward = (s_ego - self.s_prev) - self.time_penalty * self.dt - self.speeding_penalty * speeding * self.dt
+        # sideways acceleration = speed x yaw rate, smoothed over ~0.25 s
+        yaw_rate = math.radians(self.ego.get_angular_velocity().z)
+        self.lat_acc = 0.8 * self.lat_acc + 0.2 * abs(speed * yaw_rate)
+        self.max_lat_acc = max(self.max_lat_acc, self.lat_acc)
+        if self.lat_acc_limit is not None:
+            reward -= self.lat_acc_penalty * max(0.0, self.lat_acc - self.lat_acc_limit) * self.dt
         self.s_prev = s_ego
         outcome = None
         if self.collision is not None:
@@ -211,7 +224,7 @@ class CarlaScenarioEnv(gym.Env):
         elif s_ego >= self.s_goal:
             reward += 20.0
             outcome = "success"
-        elif abs(l_ego) > 2.5:
+        elif abs(l_ego) > 2.5 or (self.lat_acc_max is not None and self.lat_acc > self.lat_acc_max):
             reward -= 50.0
             outcome = "off_road"
         terminated = outcome is not None
@@ -222,6 +235,7 @@ class CarlaScenarioEnv(gym.Env):
         self._follow_camera()
         info = {"outcome": outcome, "time": self.t, "min_dist": self.min_dist,
                 "collided_with": self.collision, "speeding": speeding > 0, "max_speed": self.max_speed,
+                "max_lat_acc": self.max_lat_acc,
                 **self._extra_info()}
         return self._obs(), float(reward), terminated, truncated, info
 
