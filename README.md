@@ -19,6 +19,19 @@ crashes. The goal is a policy that is bold when it can be and careful when it mu
 > learning, PPO fine-tuning, a high-level mode switcher (H-ReIL style) and a PPO-from-scratch
 > baseline, evaluated over 3 seeds each.
 
+## Demo
+
+The learned policies on unseen scenarios, from a camera behind the car (live speed and, for the
+mode switcher, which driving style it is using):
+
+| Scenario 1: pedestrian dart-out | Scenario 2: sudden cut-in |
+|---|---|
+| <img src="assets/demo_pedestrian.gif" alt="PPO stops for a pedestrian stepping out from behind a parked car" width="100%"> | <img src="assets/demo_cut_in.gif" alt="Mode switcher handles a car cutting in and braking" width="100%"> |
+| PPO from imitation stops for the pedestrian, waits, then drives on. | The mode switcher stays aggressive, then switches to timid when the SUV cuts in. |
+| **Scenario 3: red-light runner** | **Scenario 4: unprotected left turn** |
+| <img src="assets/demo_red_light.gif" alt="Mode switcher lets a red-light runner cross first" width="100%"> | <img src="assets/demo_left_turn.gif" alt="PPO waits for an oncoming car before turning left" width="100%"> |
+| The mode switcher lets the red-light runner cross, then speeds up. | PPO from imitation waits for the oncoming car, then turns. |
+
 ## Approach
 
 1. **Near-accident scenarios** built on the CARLA simulator.
@@ -279,6 +292,9 @@ python scripts/plot_results.py   # results/learning_curves.png and results/summa
 
 # Watch a policy drive (spectator camera follows the car)
 python scripts/evaluate.py --policies ppo:checkpoints/ppo_from_coil_s0.pt --episodes 5 --render
+
+# Record a demo GIF (searches the unseen scenarios for a close call) -> assets/demo_<scenario>.gif
+python scripts/record_demo.py --scenario cut_in --policy switcher:checkpoints/cut_in/ppo_switcher_s0.pt
 ```
 
 Every script takes `--scenario pedestrian` (default), `cut_in`, `red_light` or `left_turn`, and
@@ -314,6 +330,7 @@ scripts/
   train_switcher.py             # high-level mode switcher (H-ReIL style)
   evaluate.py                   # compare policies on the same unseen scenarios
   plot_results.py               # learning curves
+  record_demo.py                # demo GIFs from a chase camera
 results/                        # evaluation JSON, learning-curve CSVs and plot (cut_in/, red_light/, left_turn/ for scenarios 2-4)
 ```
 

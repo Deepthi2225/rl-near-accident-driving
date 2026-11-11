@@ -48,7 +48,9 @@ class CarlaScenarioEnv(gym.Env):
         self.client = carla.Client(host, port)
         self.client.set_timeout(timeout)
         if town and not self.client.get_world().get_map().name.endswith(town):
+            self.client.set_timeout(max(timeout, 180.0))  # loading a map can take minutes
             self.client.load_world(town)
+            self.client.set_timeout(timeout)
         self.world = self.client.get_world()
         self.map = self.world.get_map()
 
